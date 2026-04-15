@@ -8,8 +8,6 @@
 import { env } from "./env";
 
 const DOCS_MCP_URL = "https://docs.qq.com/openapi/mcp";
-const DOCENGINE_MCP_URL = "https://docs.qq.com/api/v6/doc/mcp";
-const SHEETENGINE_MCP_URL = "https://docs.qq.com/api/v6/sheet/mcp";
 
 function getToken(): string {
   const token = process.env.TENCENT_DOCS_TOKEN ?? env.TENCENT_DOCS_TOKEN;
@@ -37,11 +35,6 @@ async function mcpCall(url: string, tool: string, args: Record<string, unknown> 
 }
 
 const docs = (tool: string, args?: Record<string, unknown>) => mcpCall(DOCS_MCP_URL, tool, args);
-// Reserved for future doc-engine / sheet-engine features.
-// @ts-expect-error unused but kept for API parity
-const _docEngine = (tool: string, args?: Record<string, unknown>) => mcpCall(DOCENGINE_MCP_URL, tool, args);
-// @ts-expect-error unused but kept for API parity
-const _sheetEngine = (tool: string, args?: Record<string, unknown>) => mcpCall(SHEETENGINE_MCP_URL, tool, args);
 
 // ── Public API ────────────────────────────────────────────────────────────
 
