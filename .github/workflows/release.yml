@@ -28,8 +28,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm (required for trusted publishing / OIDC)
+        run: npm install -g npm@latest
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -46,20 +49,18 @@ jobs:
         run: bun test || echo "no tests"
 
       - name: Semantic Release
-        id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          bunx semantic-release
-          if git describe --tags --abbrev=0 --exact-match HEAD 2>/dev/null; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: bunx semantic-release
 
-      - name: Publish to npm (with provenance)
-        if: steps.release.outputs.published == 'true'
+      - name: Publish to npm if version not on registry
         env:
           NPM_CONFIG_PROVENANCE: "true"
-        run: npm publish --provenance --access public
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "qqdocs@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "qqdocs@$PKG_VERSION already on npm, skipping publish"
+          else
+            echo "Publishing qqdocs@$PKG_VERSION with provenance"
+            npm publish --provenance --access public
+          fi
