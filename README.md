@@ -7,6 +7,7 @@ POST per call.
 ## Install
 
 ```bash
+bunx qqdocs ls        # run without install
 bun add qqdocs        # library
 bun add -g qqdocs     # `qqdocs` CLI
 ```
