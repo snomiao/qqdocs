@@ -1,0 +1,23 @@
+title = "qqdocs gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "tencent-docs-token"
+description = "TENCENT_DOCS_TOKEN assigned a concrete value (must come from env / .env.local, never committed)."
+regex = '''TENCENT_DOCS_TOKEN\s*=\s*["']?[A-Za-z0-9]{16,}'''
+tags = ["secret", "tencent-docs"]
+
+[allowlist]
+description = "Known-safe placeholders."
+paths = [
+  '''\.env\.local$''',
+  '''\.env\.example$''',
+  '''\.gitleaks\.toml$''',
+  '''README\.md$''',
+]
+regexes = [
+  '''your_tencent_docs_token_here''',
+  '''TENCENT_DOCS_TOKEN=\.\.\.''',
+]
