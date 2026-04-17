@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/snomiao/qqdocs/compare/v1.1.1...v1.2.0) (2026-04-17)
+
+
+### Features
+
+* resolve file reference by filename in addition to ID/URL ([5d8978d](https://github.com/snomiao/qqdocs/commit/5d8978d9f282ca3dc2fdd1425651c2255d3f8064))
+
 ## [1.1.1](https://github.com/snomiao/qqdocs/compare/v1.1.0...v1.1.1) (2026-04-17)
 
 
