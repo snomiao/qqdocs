@@ -203,6 +203,25 @@ describe("fetch retry helper", () => {
     expect(delays).toEqual([100, 200]);
   });
 
+  test("does not retry network failures when retryNetworkErrors=false", async () => {
+    let attempts = 0;
+    const fetchImpl = (async () => {
+      attempts += 1;
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch;
+
+    await expect(
+      fetchWithRetry("https://example.com", { method: "POST" }, {
+        maxAttempts: 4,
+        retryNetworkErrors: false,
+        fetchImpl,
+        sleep: async () => {},
+        random: () => 0,
+      }),
+    ).rejects.toThrow("socket hang up");
+    expect(attempts).toBe(1);
+  });
+
   test("does not retry non-retryable HTTP responses", async () => {
     const delays: number[] = [];
     let attempts = 0;

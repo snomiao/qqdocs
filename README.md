@@ -4,6 +4,11 @@ Tencent Docs ([docs.qq.com](https://docs.qq.com)) CLI and library. Thin
 wrapper over the MCP JSON-RPC endpoints — no SDK, no handshake, one HTTP
 POST per call.
 
+## Requirements
+
+[Bun](https://bun.sh) ≥ 1.x. The CLI is shipped as `.ts` with a Bun shebang,
+so `node`/`npx` is not supported — use `bun`/`bunx`.
+
 ## Install
 
 ```bash
@@ -14,8 +19,8 @@ bun add -g qqdocs     # `qqdocs` CLI
 
 Published binaries:
 
-- `qqdoc`
-- `qqdocs`
+- `qqdocs` (canonical)
+- `qqdoc` (typo-tolerant alias)
 
 ## Auth
 
@@ -30,8 +35,8 @@ and either:
 ## CLI
 
 ```bash
-qqdoc tools [pattern]                                # list live MCP tools
-qqdoc raw <tool> --json '{"file_id":"..."}'          # raw tool call
+qqdocs tools [pattern]                                # list live MCP tools
+qqdocs raw <tool> --json '{"file_id":"..."}'          # raw tool call
 
 qqdocs ls                                            # recent documents
 qqdocs search <query>                                # keyword search
@@ -40,22 +45,22 @@ qqdocs delete <file-id-or-url>                       # dry run; prints delete co
 qqdocs delete <file-id-or-url> --confirm=123456      # delete using current content-hash code
 qqdocs delete <file-id-or-url> -c 123456             # same as --confirm
 qqdocs info <file-id-or-url>                         # document metadata
-qqdoc import <path> [--title <title>]                # import pdf/docx/pptx/... or ingest .md/.mdx
+qqdocs import <path> [--title <title>]                # import pdf/docx/pptx/... or ingest .md/.mdx
 qqdocs perm get <file-id-or-url>                     # read permission
 qqdocs perm set <file-id-or-url> <private|link-read|link-edit>
 
-qqdoc space list [--scope all|mine|joined]
-qqdoc space create <title> [--description <text>]
-qqdoc space ls <space-id> [--parent <node-id>] [--page <n>]
-qqdoc space mkdir <space-id> <title> [--parent <node-id>]
-qqdoc space mkdoc <space-id> <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsheet|form]
-qqdoc space link <space-id> <title> <url> [--description <text>]
-qqdoc space rm <space-id> <node-id> [--all]
-qqdoc space move <file-id-or-url> <space-id> [--parent <node-id>]
+qqdocs space list [--scope all|mine|joined]
+qqdocs space create <title> [--description <text>]
+qqdocs space ls <space-id> [--parent <node-id>] [--page <n>]
+qqdocs space mkdir <space-id> <title> [--parent <node-id>]
+qqdocs space mkdoc <space-id> <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsheet|form]
+qqdocs space link <space-id> <title> <url> [--description <text>]
+qqdocs space rm <space-id> <node-id> [--all]
+qqdocs space move <file-id-or-url> <space-id> [--parent <node-id>]
 
-qqdoc canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>]
-qqdoc canvas find <file-id-or-url> <query>
-qqdoc canvas edit <file-id-or-url> <insert-before|insert-after|append|update|delete>
+qqdocs canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>]
+qqdocs canvas find <file-id-or-url> <query>
+qqdocs canvas edit <file-id-or-url> <insert-before|insert-after|append|update|delete>
                  [--id <block-id>] [--content '<mdx>']
 
 qqdocs create <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsheet|form]
@@ -64,7 +69,7 @@ qqdocs create <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsh
                       [--perm private|link-read|link-edit]
 ```
 
-The live Tencent Docs MCP surface changes over time. `qqdoc tools` is the
+The live Tencent Docs MCP surface changes over time. `qqdocs tools` is the
 source of truth for what the current server actually exposes.
 
 File arguments accept either a raw `file_id` or a full `docs.qq.com` URL —
@@ -76,7 +81,7 @@ the document's current content. The delete only happens when that exact code
 is passed back via `--confirm=<6-digit-code>`, so if the content changes, the
 code changes.
 
-`qqdoc import` supports:
+`qqdocs import` supports:
 
 - Markdown sources: `.md`, `.markdown`, `.mdx`
 - Tencent async import formats: `xls`, `xlsx`, `csv`, `doc`, `docx`, `txt`, `text`, `ppt`, `pptx`, `pdf`, `xmind`

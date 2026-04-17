@@ -20,6 +20,8 @@ export type FetchWithRetryOptions = {
   maxAttempts?: number;
   baseDelayMs?: number;
   maxDelayMs?: number;
+  /** Retry on fetch-level network failures (default true). Set false for non-idempotent writes. */
+  retryNetworkErrors?: boolean;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
@@ -45,6 +47,7 @@ export async function fetchWithRetry(url: string, init: RequestInit, opts: Fetch
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? Bun.sleep;
   const maxAttempts = Math.max(1, Math.floor(opts.maxAttempts ?? DEFAULT_FETCH_RETRY_MAX_ATTEMPTS));
+  const retryNetworkErrors = opts.retryNetworkErrors ?? true;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -58,7 +61,7 @@ export async function fetchWithRetry(url: string, init: RequestInit, opts: Fetch
         now: opts.now,
       }));
     } catch (error) {
-      if (attempt === maxAttempts) throw error;
+      if (!retryNetworkErrors || attempt === maxAttempts) throw error;
       await sleep(computeRetryDelayMs(attempt, {
         baseDelayMs: opts.baseDelayMs,
         maxDelayMs: opts.maxDelayMs,
@@ -71,7 +74,9 @@ export async function fetchWithRetry(url: string, init: RequestInit, opts: Fetch
   throw new Error("Retry loop exhausted unexpectedly.");
 }
 
-async function mcpRequest(url: string, method: string, params: Record<string, unknown> = {}): Promise<any> {
+type McpCallOptions = { retryNetworkErrors?: boolean };
+
+async function mcpRequest(url: string, method: string, params: Record<string, unknown> = {}, opts: McpCallOptions = {}): Promise<any> {
   const res = await fetchWithRetry(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: getToken() },
@@ -81,7 +86,7 @@ async function mcpRequest(url: string, method: string, params: Record<string, un
       method,
       params,
     }),
-  });
+  }, { retryNetworkErrors: opts.retryNetworkErrors });
   const body = await res.text();
   const j = parseJsonResponseBody(body);
   if (!res.ok) {
@@ -100,13 +105,21 @@ async function mcpRequest(url: string, method: string, params: Record<string, un
   return j.result;
 }
 
-async function mcpCall(url: string, tool: string, args: Record<string, unknown> = {}): Promise<any> {
-  const result = await mcpRequest(url, "tools/call", { name: tool, arguments: args });
+async function mcpCall(url: string, tool: string, args: Record<string, unknown> = {}, opts: McpCallOptions = {}): Promise<any> {
+  const result = await mcpRequest(url, "tools/call", { name: tool, arguments: args }, opts);
   const j = result as any;
-  return j.structuredContent ?? JSON.parse(j.content?.[0]?.text ?? "{}");
+  if (j.structuredContent !== undefined) return j.structuredContent;
+  const text = j.content?.[0]?.text ?? "{}";
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`MCP tool "${tool}" returned non-JSON content: ${message}: ${summarizeText(text, 160)}`);
+  }
 }
 
-const docs = (tool: string, args?: Record<string, unknown>) => mcpCall(DOCS_MCP_URL, tool, args);
+const docs = (tool: string, args?: Record<string, unknown>, opts?: McpCallOptions) => mcpCall(DOCS_MCP_URL, tool, args, opts);
+const NO_NETWORK_RETRY: McpCallOptions = { retryNetworkErrors: false };
 
 async function mcpListTools(url: string): Promise<any[]> {
   const result = await mcpRequest(url, "tools/list");
@@ -218,7 +231,11 @@ export const getDocPrivilege = getDocPermission;
 /** Read document content. */
 export async function readDoc(fileId: string): Promise<string> {
   const r = await docs("get_content", { file_id: fileId });
-  return r.content ?? JSON.stringify(r);
+  if (typeof r?.content !== "string") {
+    const suffix = r?.error ? `: ${r.error}` : "";
+    throw new Error(`MCP get_content returned no content for file ${fileId}${suffix}`);
+  }
+  return r.content;
 }
 
 /** Delete a document. */
@@ -257,14 +274,14 @@ export async function createDoc(
       mdx: opts.content,
       ...(opts.contentFormat ? { content_format: normalizeSmartCanvasContentFormat(opts.contentFormat) } : {}),
       ...(opts.parentId ? { parent_id: opts.parentId } : {}),
-    });
+    }, NO_NETWORK_RETRY);
   }
   return docs("manage.create_file", {
     title,
     file_type: type,
     ...(opts?.parentId ? { parent_id: opts.parentId } : {}),
     ...(opts?.spaceId ? { space_id: opts.spaceId } : {}),
-  });
+  }, NO_NETWORK_RETRY);
 }
 
 /** Set document permission. Tencent Docs MCP currently supports only public-read and public-edit. */
@@ -282,7 +299,7 @@ export async function renameDoc(fileId: string, title: string): Promise<{ file_i
 
 /** Prepare an async import and receive the signed upload URL. */
 export async function preImportFile(fileName: string, fileSize: number, fileMd5: string): Promise<ImportPreparation> {
-  return docs("manage.pre_import", { file_name: fileName, file_size: fileSize, file_md5: fileMd5 });
+  return docs("manage.pre_import", { file_name: fileName, file_size: fileSize, file_md5: fileMd5 }, NO_NETWORK_RETRY);
 }
 
 /** Start an async import after uploading the source bytes. */
@@ -299,7 +316,7 @@ export async function asyncImportFile(input: {
     file_md5: input.fileMd5,
     file_key: input.fileKey,
     task_id: input.taskId,
-  });
+  }, NO_NETWORK_RETRY);
 }
 
 /** Query async import progress. */
@@ -390,7 +407,7 @@ export async function createSpace(title: string, description?: string): Promise<
   return docs("create_space", {
     title,
     ...(description ? { description } : {}),
-  });
+  }, NO_NETWORK_RETRY);
 }
 
 /** List nodes under a given space parent. */
@@ -418,7 +435,7 @@ export async function createSpaceFolder(
     ...(opts.parentId ? { parent_node_id: opts.parentId } : {}),
     ...(typeof opts.isBefore === "boolean" ? { is_before: opts.isBefore } : {}),
     wiki_folder_node: { title },
-  });
+  }, NO_NETWORK_RETRY);
 }
 
 /** Create a document node inside a space. */
@@ -439,7 +456,7 @@ export async function createSpaceDocNode(
       title,
       doc_type: docType,
     },
-  });
+  }, NO_NETWORK_RETRY);
 }
 
 /** Create a link node inside a space. */
@@ -460,7 +477,7 @@ export async function createSpaceLinkNode(
       link_url: url,
       ...(opts.description ? { link_description: opts.description } : {}),
     },
-  });
+  }, NO_NETWORK_RETRY);
 }
 
 /** Delete a space node. */
@@ -518,12 +535,13 @@ export async function editCanvas(
 ): Promise<Record<string, unknown>> {
   const normalizedAction = normalizeCanvasEditAction(action);
   assertCanvasEditArgs(normalizedAction, opts);
+  const isInsert = normalizedAction === "INSERT_BEFORE" || normalizedAction === "INSERT_AFTER";
   return docs("smartcanvas.edit", {
     file_id: fileId,
     action: normalizedAction,
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.content !== undefined ? { content: opts.content } : {}),
-  });
+  }, isInsert ? NO_NETWORK_RETRY : undefined);
 }
 
 // ── CLI command handlers ──────────────────────────────────────────────────
@@ -652,7 +670,7 @@ export async function cmdDocsImport(
   } = {},
 ) {
   if (!filePath) {
-    console.log("Usage: qqdoc import <path> [--title <title>] [--perm private|link-read|link-edit] [--space <space-id>] [--parent <node-id>] [--poll <ms>] [--timeout <ms>]");
+    console.log("Usage: qqdocs import <path> [--title <title>] [--perm private|link-read|link-edit] [--space <space-id>] [--parent <node-id>] [--poll <ms>] [--timeout <ms>]");
     return;
   }
   if (opts.parentId && !opts.spaceId) {
@@ -767,7 +785,7 @@ export async function cmdTools(pattern?: string) {
 
 export async function cmdRaw(tool: string, jsonInput = "{}") {
   if (!tool) {
-    console.log("Usage: qqdoc raw <tool> [--json '{...}']");
+    console.log("Usage: qqdocs raw <tool> [--json '{...}']");
     return;
   }
   const args = parseJsonObject(jsonInput);
@@ -794,7 +812,7 @@ export async function cmdSpaceList(opts: {
 
 export async function cmdSpaceCreate(title: string, opts: { description?: string } = {}) {
   if (!title) {
-    console.log("Usage: qqdoc space create <title> [--description <text>]");
+    console.log("Usage: qqdocs space create <title> [--description <text>]");
     return;
   }
   const result = await createSpace(title, opts.description);
@@ -803,7 +821,7 @@ export async function cmdSpaceCreate(title: string, opts: { description?: string
 
 export async function cmdSpaceLs(spaceId: string, opts: { parentId?: string; page?: number } = {}) {
   if (!spaceId) {
-    console.log("Usage: qqdoc space ls <space-id> [--parent <node-id>] [--page <n>]");
+    console.log("Usage: qqdocs space ls <space-id> [--parent <node-id>] [--page <n>]");
     return;
   }
   const result = await listSpaceNodes(spaceId, opts);
@@ -815,7 +833,7 @@ export async function cmdSpaceLs(spaceId: string, opts: { parentId?: string; pag
 
 export async function cmdSpaceMkdir(spaceId: string, title: string, opts: { parentId?: string; isBefore?: boolean } = {}) {
   if (!spaceId || !title) {
-    console.log("Usage: qqdoc space mkdir <space-id> <title> [--parent <node-id>] [--before]");
+    console.log("Usage: qqdocs space mkdir <space-id> <title> [--parent <node-id>] [--before]");
     return;
   }
   const result = await createSpaceFolder(spaceId, title, opts);
@@ -828,7 +846,7 @@ export async function cmdSpaceMkdoc(
   opts: { type?: SpaceDocTypeInput; parentId?: string; isBefore?: boolean } = {},
 ) {
   if (!spaceId || !title) {
-    console.log("Usage: qqdoc space mkdoc <space-id> <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsheet|form] [--parent <node-id>] [--before]");
+    console.log("Usage: qqdocs space mkdoc <space-id> <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsheet|form] [--parent <node-id>] [--before]");
     return;
   }
   const result = await createSpaceDocNode(spaceId, title, opts.type ?? "smartcanvas", opts);
@@ -842,7 +860,7 @@ export async function cmdSpaceLink(
   opts: { description?: string; parentId?: string; isBefore?: boolean } = {},
 ) {
   if (!spaceId || !title || !url) {
-    console.log("Usage: qqdoc space link <space-id> <title> <url> [--description <text>] [--parent <node-id>] [--before]");
+    console.log("Usage: qqdocs space link <space-id> <title> <url> [--description <text>] [--parent <node-id>] [--before]");
     return;
   }
   const result = await createSpaceLinkNode(spaceId, title, url, opts);
@@ -851,7 +869,7 @@ export async function cmdSpaceLink(
 
 export async function cmdSpaceRm(spaceId: string, nodeId: string, opts: { all?: boolean } = {}) {
   if (!spaceId || !nodeId) {
-    console.log("Usage: qqdoc space rm <space-id> <node-id> [--all]");
+    console.log("Usage: qqdocs space rm <space-id> <node-id> [--all]");
     return;
   }
   const result = await removeSpaceNode(spaceId, nodeId, opts.all ? "all" : "current");
@@ -865,7 +883,7 @@ export async function cmdSpaceRm(spaceId: string, nodeId: string, opts: { all?: 
 
 export async function cmdSpaceMove(fileIdOrUrl: string, spaceId: string, opts: { parentId?: string } = {}) {
   if (!fileIdOrUrl || !spaceId) {
-    console.log("Usage: qqdoc space move <file-id-or-url> <space-id> [--parent <node-id>]");
+    console.log("Usage: qqdocs space move <file-id-or-url> <space-id> [--parent <node-id>]");
     return;
   }
   const fileId = extractFileId(fileIdOrUrl);
@@ -879,7 +897,7 @@ export async function cmdSpaceMove(fileIdOrUrl: string, spaceId: string, opts: {
 
 export async function cmdCanvasRead(fileIdOrUrl: string, opts: { pageId?: string; size?: number; nextToken?: string } = {}) {
   if (!fileIdOrUrl) {
-    console.log("Usage: qqdoc canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>]");
+    console.log("Usage: qqdocs canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>]");
     return;
   }
   const fileId = extractFileId(fileIdOrUrl);
@@ -890,7 +908,7 @@ export async function cmdCanvasRead(fileIdOrUrl: string, opts: { pageId?: string
 
 export async function cmdCanvasFind(fileIdOrUrl: string, query: string) {
   if (!fileIdOrUrl || !query) {
-    console.log("Usage: qqdoc canvas find <file-id-or-url> <query>");
+    console.log("Usage: qqdocs canvas find <file-id-or-url> <query>");
     return;
   }
   const fileId = extractFileId(fileIdOrUrl);
@@ -902,7 +920,7 @@ export async function cmdCanvasFind(fileIdOrUrl: string, query: string) {
 
 export async function cmdCanvasEdit(fileIdOrUrl: string, action: CanvasEditActionInput, opts: { id?: string; content?: string } = {}) {
   if (!fileIdOrUrl || !action) {
-    console.log("Usage: qqdoc canvas edit <file-id-or-url> <insert-before|insert-after|append|update|delete> [--id <block-id>] [--content <mdx>]");
+    console.log("Usage: qqdocs canvas edit <file-id-or-url> <insert-before|insert-after|append|update|delete> [--id <block-id>] [--content <mdx>]");
     return;
   }
   const fileId = extractFileId(fileIdOrUrl);
