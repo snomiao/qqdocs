@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/snomiao/qqdocs/compare/v1.2.0...v1.3.0) (2026-04-17)
+
+
+### Features
+
+* add rename/open commands, JSON output, pagination, and completion ([4ad8791](https://github.com/snomiao/qqdocs/commit/4ad879188f7cc82950a596460d163f816db08507))
+
 # [1.2.0](https://github.com/snomiao/qqdocs/compare/v1.1.1...v1.2.0) (2026-04-17)
 
 
