@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/snomiao/qqdocs/compare/v1.5.0...v1.6.0) (2026-04-17)
+
+
+### Features
+
+* alias `mv` for `rename` ([26a4fb5](https://github.com/snomiao/qqdocs/commit/26a4fb58b6855e6de537b621e081ae998d0c4c89))
+
 # [1.5.0](https://github.com/snomiao/qqdocs/compare/v1.4.0...v1.5.0) (2026-04-17)
 
 
