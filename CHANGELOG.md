@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/snomiao/qqdocs/compare/v1.0.0...v1.1.0) (2026-04-17)
+
+
+### Features
+
+* expand CLI and add privacy guardrails ([6ed87a6](https://github.com/snomiao/qqdocs/commit/6ed87a6f9b063017c7913f3627e09057bebd94d3))
+
 # 1.0.0 (2026-04-15)
 
 
