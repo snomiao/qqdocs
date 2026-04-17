@@ -93,18 +93,18 @@ describe("file id resolution", () => {
 });
 
 describe("delete helpers", () => {
-  test("creates stable 6-digit content-derived confirmation codes", () => {
-    expect(createDeleteConfirmCode("hello")).toMatch(/^\d{6}$/);
+  test("creates stable 4-digit content-derived confirmation codes", () => {
+    expect(createDeleteConfirmCode("hello")).toMatch(/^\d{4}$/);
     expect(createDeleteConfirmCode("hello")).toBe(createDeleteConfirmCode("hello"));
     expect(createDeleteConfirmCode("hello")).not.toBe(createDeleteConfirmCode("hello!"));
   });
 
   test("normalizes and formats delete confirmation commands", () => {
-    expect(normalizeDeleteConfirmCode("012345")).toBe("012345");
-    expect(() => normalizeDeleteConfirmCode("12345")).toThrow("Delete confirmation code must be exactly 6 digits.");
-    expect(() => normalizeDeleteConfirmCode("abcdef")).toThrow("Delete confirmation code must be exactly 6 digits.");
-    expect(formatDeleteDocCommand("dExampleRawId123")).toBe("qqdocs delete dExampleRawId123 --confirm=<6-digit-code>");
-    expect(formatDeleteDocCommand("dExampleRawId123", "012345")).toBe("qqdocs delete dExampleRawId123 --confirm=012345");
+    expect(normalizeDeleteConfirmCode("0123")).toBe("0123");
+    expect(() => normalizeDeleteConfirmCode("123")).toThrow("Delete confirmation code must be exactly 4 digits.");
+    expect(() => normalizeDeleteConfirmCode("abcd")).toThrow("Delete confirmation code must be exactly 4 digits.");
+    expect(formatDeleteDocCommand("dExampleRawId123")).toBe("qqdocs delete dExampleRawId123 --confirm=<4-digit-code>");
+    expect(formatDeleteDocCommand("dExampleRawId123", "0123")).toBe("qqdocs delete dExampleRawId123 --confirm=0123");
   });
 });
 

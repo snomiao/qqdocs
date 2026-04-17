@@ -52,9 +52,9 @@ qqdocs read <file-id-or-url-or-name>                 # read document content
 qqdocs rename <file-id-or-url-or-name> <new-title>   # rename
 qqdocs open <file-id-or-url-or-name>                 # open in browser
 qqdocs cp <file-id-or-url-or-name> [--title <t>]     # copy document (alias: copy)
-qqdocs delete <file-id-or-url>                       # dry run; prints delete confirm code
-qqdocs delete <file-id-or-url> --confirm=123456      # delete using current content-hash code
-qqdocs delete <file-id-or-url> -c 123456             # same as --confirm
+qqdocs delete <file-id-or-url>                       # dry run; prints delete confirm code (alias: rm)
+qqdocs delete <file-id-or-url> --confirm=1234        # delete using current content-hash code
+qqdocs delete <file-id-or-url> -c 1234               # same as --confirm
 qqdocs info <file-id-or-url> [--json]                # document metadata
 qqdocs import <path> [--title <title>]                # import pdf/docx/pptx/... or ingest .md/.mdx
 qqdocs perm get <file-id-or-url>                     # read permission
@@ -101,9 +101,9 @@ command throws a list of candidates so you can disambiguate by ID, URL,
 or rename.
 
 `qqdocs delete` is intentionally two-step. Running it without `--confirm`
-does a dry run and prints the current 6-digit confirmation code derived from
+does a dry run and prints the current 4-digit confirmation code derived from
 the document's current content. The delete only happens when that exact code
-is passed back via `--confirm=<6-digit-code>`, so if the content changes, the
+is passed back via `--confirm=<4-digit-code>`, so if the content changes, the
 code changes.
 
 `qqdocs import` supports:

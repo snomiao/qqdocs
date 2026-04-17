@@ -74,9 +74,9 @@ await yargs(hideBin(process.argv))
     .positional("file", { type: "string", demandOption: true })
     .option("title", { type: "string", describe: "New title for the copy" }),
     async argv => cmdDocsCopy(argv.file, { title: argv.title }))
-  .command("delete <file>", "Dry-run document delete; prints required --confirm=<6-digit-code>, then deletes when provided", y => y
+  .command(["delete <file>", "rm <file>"], "Dry-run document delete; prints required --confirm=<4-digit-code>, then deletes when provided", y => y
     .positional("file", { type: "string", demandOption: true })
-    .option("confirm", { type: "string", alias: "c", describe: "6-digit code derived from current document content" }),
+    .option("confirm", { type: "string", alias: "c", describe: "4-digit code derived from current document content" }),
     async argv => cmdDocsDelete(argv.file, { confirm: argv.confirm }))
   .command("info <file>", "Show document metadata (file ID, URL, or filename)", y => y
     .positional("file", { type: "string", demandOption: true })

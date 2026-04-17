@@ -204,7 +204,7 @@ const MARKDOWN_FILE_EXTENSIONS = new Set([".md", ".markdown"]);
 const MDX_FILE_EXTENSIONS = new Set([".mdx"]);
 const DEFAULT_IMPORT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_IMPORT_TIMEOUT_MS = 5 * 60_000;
-const DELETE_CONFIRM_CODE_DIGITS = 6;
+const DELETE_CONFIRM_CODE_DIGITS = 4;
 const DELETE_CONFIRM_CODE_MODULUS = 10 ** DELETE_CONFIRM_CODE_DIGITS;
 
 /** List recently viewed documents (page-based, page=1 is first page). */
@@ -266,7 +266,7 @@ export async function deleteDoc(
   });
 }
 
-/** Create a 6-digit delete confirmation code from current document content. */
+/** Create a 4-digit delete confirmation code from current document content. */
 export function createDeleteConfirmCode(content: string): string {
   const hash = createHash("sha256").update(content).digest();
   const code = hash.readUIntBE(0, 6) % DELETE_CONFIRM_CODE_MODULUS;
@@ -660,7 +660,7 @@ export async function cmdDocsDelete(
   opts: { deleteType?: "origin" | "recent"; confirm?: string } = {},
 ) {
   if (!fileIdOrUrl) {
-    console.log("Usage: qqdocs delete <file-id-or-url> --confirm=<6-digit-code>");
+    console.log("Usage: qqdocs delete <file-id-or-url> --confirm=<4-digit-code>");
     return;
   }
   const fileId = await resolveFileId(fileIdOrUrl);
@@ -1157,11 +1157,11 @@ export function formatSetDocPermissionCommand(fileId: string): string {
 
 export function normalizeDeleteConfirmCode(input: string | number): string {
   const value = `${input}`.trim();
-  if (/^\d{6}$/.test(value)) return value;
-  throw new Error("Delete confirmation code must be exactly 6 digits.");
+  if (new RegExp(`^\\d{${DELETE_CONFIRM_CODE_DIGITS}}$`).test(value)) return value;
+  throw new Error(`Delete confirmation code must be exactly ${DELETE_CONFIRM_CODE_DIGITS} digits.`);
 }
 
-export function formatDeleteDocCommand(fileId: string, confirmCode = "<6-digit-code>"): string {
+export function formatDeleteDocCommand(fileId: string, confirmCode = `<${DELETE_CONFIRM_CODE_DIGITS}-digit-code>`): string {
   return `qqdocs delete ${fileId} --confirm=${confirmCode}`;
 }
 
