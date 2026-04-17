@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/snomiao/qqdocs/compare/v1.6.0...v1.7.0) (2026-04-17)
+
+
+### Features
+
+* prepend title+url header to `read` output ([7eaed52](https://github.com/snomiao/qqdocs/commit/7eaed5289b4afad3b6a2555d44a208f63b1f9be9))
+
 # [1.6.0](https://github.com/snomiao/qqdocs/compare/v1.5.0...v1.6.0) (2026-04-17)
 
 
