@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  browserOpenCommand,
   createDeleteConfirmCode,
   defaultImportedDocTitle,
   detectLocalDocImportStrategy,
   describeDocPermissionPolicy,
+  docTypeFromUrl,
   extractFileId,
   fetchWithRetry,
   looksLikeFileId,
@@ -35,6 +37,29 @@ describe("extractFileId", () => {
 
   test("extracts ids from /aio/ URLs", () => {
     expect(extractFileId("https://docs.qq.com/aio/DZExqQkJCUmpMekhR")).toBe("DZExqQkJCUmpMekhR");
+  });
+});
+
+describe("doc type detection", () => {
+  test("derives type from docs.qq.com url segment", () => {
+    expect(docTypeFromUrl("https://docs.qq.com/sheet/ABC")).toBe("sheet");
+    expect(docTypeFromUrl("https://docs.qq.com/smartsheet/ABC")).toBe("smartsheet");
+    expect(docTypeFromUrl("https://docs.qq.com/slide/ABC")).toBe("slide");
+    expect(docTypeFromUrl("https://docs.qq.com/form/ABC")).toBe("form");
+    expect(docTypeFromUrl("https://docs.qq.com/pdf/ABC")).toBe("pdf");
+    expect(docTypeFromUrl("https://docs.qq.com/mind/ABC")).toBe("mind");
+    expect(docTypeFromUrl("https://docs.qq.com/flowchart/ABC")).toBe("flowchart");
+    expect(docTypeFromUrl("https://docs.qq.com/aio/ABC")).toBe("doc");
+    expect(docTypeFromUrl("https://docs.qq.com/doc/ABC")).toBe("doc");
+  });
+});
+
+describe("browser open", () => {
+  test("picks a platform-specific opener", () => {
+    expect(browserOpenCommand("darwin").cmd).toBe("open");
+    expect(browserOpenCommand("linux").cmd).toBe("xdg-open");
+    expect(browserOpenCommand("win32").cmd).toBe("cmd");
+    expect(browserOpenCommand("win32").args("https://x")).toEqual(["/c", "start", "", "https://x"]);
   });
 });
 

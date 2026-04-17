@@ -38,13 +38,15 @@ and either:
 qqdocs tools [pattern]                                # list live MCP tools
 qqdocs raw <tool> --json '{"file_id":"..."}'          # raw tool call
 
-qqdocs ls                                            # recent documents
-qqdocs search <query>                                # keyword search
-qqdocs read <file-id-or-url>                         # read document content
+qqdocs ls [--json]                                   # recent documents
+qqdocs search <query> [--json]                       # keyword search
+qqdocs read <file-id-or-url-or-name>                 # read document content
+qqdocs rename <file-id-or-url-or-name> <new-title>   # rename
+qqdocs open <file-id-or-url-or-name>                 # open in browser
 qqdocs delete <file-id-or-url>                       # dry run; prints delete confirm code
 qqdocs delete <file-id-or-url> --confirm=123456      # delete using current content-hash code
 qqdocs delete <file-id-or-url> -c 123456             # same as --confirm
-qqdocs info <file-id-or-url>                         # document metadata
+qqdocs info <file-id-or-url> [--json]                # document metadata
 qqdocs import <path> [--title <title>]                # import pdf/docx/pptx/... or ingest .md/.mdx
 qqdocs perm get <file-id-or-url>                     # read permission
 qqdocs perm set <file-id-or-url> <private|link-read|link-edit>
@@ -58,7 +60,7 @@ qqdocs space link <space-id> <title> <url> [--description <text>]
 qqdocs space rm <space-id> <node-id> [--all]
 qqdocs space move <file-id-or-url> <space-id> [--parent <node-id>]
 
-qqdocs canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>]
+qqdocs canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>] [--all]
 qqdocs canvas find <file-id-or-url> <query>
 qqdocs canvas edit <file-id-or-url> <insert-before|insert-after|append|update|delete>
                  [--id <block-id>] [--content '<mdx>']
@@ -67,6 +69,17 @@ qqdocs create <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsh
                       [--format mdx|markdown]
                       [--content '<mdx-or-markdown>']
                       [--perm private|link-read|link-edit]
+
+qqdocs completion                                    # prints a shell completion script
+```
+
+## Shell completion
+
+`qqdocs completion` prints a completion script. Source it from your shell rc:
+
+```bash
+qqdocs completion >> ~/.zshrc     # zsh
+qqdocs completion >> ~/.bashrc    # bash
 ```
 
 The live Tencent Docs MCP surface changes over time. `qqdocs tools` is the

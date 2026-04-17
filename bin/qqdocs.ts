@@ -4,6 +4,12 @@
 import { basename } from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
+
+function resolveScriptName(): string {
+  const raw = basename(process.argv[1] ?? "qqdocs");
+  // Strip .ts/.js so help output reads "qqdocs" not "qqdocs.ts" under bun link.
+  return raw.replace(/\.(ts|js|mjs|cjs)$/i, "") || "qqdocs";
+}
 import {
   type CanvasEditActionInput,
   type SpaceDocTypeInput,
@@ -16,8 +22,10 @@ import {
   cmdDocsInfo,
   cmdDocsImport,
   cmdDocsLs,
+  cmdDocsOpen,
   cmdDocsPermission,
   cmdDocsRead,
+  cmdDocsRename,
   cmdDocsSearch,
   cmdDocsSetPermission,
   cmdRaw,
@@ -33,7 +41,7 @@ import {
 } from "../src/index";
 
 await yargs(hideBin(process.argv))
-  .scriptName(basename(process.argv[1] ?? "qqdocs"))
+  .scriptName(resolveScriptName())
   .usage("$0 <command> [options]")
   .command("tools [pattern]", "List live Tencent Docs MCP tools", y => y
     .positional("pattern", { type: "string" }),
@@ -44,21 +52,31 @@ await yargs(hideBin(process.argv))
     async argv => cmdRaw(argv.tool, argv.json))
   .command("ls", "List recently viewed documents", y => y
     .option("count", { type: "number", default: 20, alias: "n" })
-    .option("page", { type: "number", default: 1, alias: "p" }),
-    async argv => cmdDocsLs({ count: argv.count, page: argv.page }))
+    .option("page", { type: "number", default: 1, alias: "p" })
+    .option("json", { type: "boolean", default: false }),
+    async argv => cmdDocsLs({ count: argv.count, page: argv.page, json: argv.json }))
   .command("search <query>", "Search documents by keyword", y => y
-    .positional("query", { type: "string", demandOption: true }),
-    async argv => cmdDocsSearch(argv.query))
-  .command("read <file>", "Read document content (file ID or URL)", y => y
+    .positional("query", { type: "string", demandOption: true })
+    .option("json", { type: "boolean", default: false }),
+    async argv => cmdDocsSearch(argv.query, { json: argv.json }))
+  .command("read <file>", "Read document content (file ID, URL, or filename)", y => y
     .positional("file", { type: "string", demandOption: true }),
     async argv => cmdDocsRead(argv.file))
+  .command("rename <file> <title>", "Rename a document", y => y
+    .positional("file", { type: "string", demandOption: true })
+    .positional("title", { type: "string", demandOption: true }),
+    async argv => cmdDocsRename(argv.file, argv.title))
+  .command("open <file>", "Open a document in the default browser", y => y
+    .positional("file", { type: "string", demandOption: true }),
+    async argv => cmdDocsOpen(argv.file))
   .command("delete <file>", "Dry-run document delete; prints required --confirm=<6-digit-code>, then deletes when provided", y => y
     .positional("file", { type: "string", demandOption: true })
     .option("confirm", { type: "string", alias: "c", describe: "6-digit code derived from current document content" }),
     async argv => cmdDocsDelete(argv.file, { confirm: argv.confirm }))
-  .command("info <file>", "Show document metadata (file ID or URL)", y => y
-    .positional("file", { type: "string", demandOption: true }),
-    async argv => cmdDocsInfo(argv.file))
+  .command("info <file>", "Show document metadata (file ID, URL, or filename)", y => y
+    .positional("file", { type: "string", demandOption: true })
+    .option("json", { type: "boolean", default: false }),
+    async argv => cmdDocsInfo(argv.file, { json: argv.json }))
   .command(["import <path>", "upload <path>"], "Import a local file or create a doc from Markdown", y => y
     .positional("path", { type: "string", demandOption: true, describe: "Local file path" })
     .option("title", { type: "string", describe: "Document title override" })
@@ -150,8 +168,9 @@ await yargs(hideBin(process.argv))
       .positional("file", { type: "string", demandOption: true })
       .option("page", { type: "string", describe: "Page ID" })
       .option("size", { type: "number" })
-      .option("next", { type: "string", describe: "Pagination token" }),
-      async argv => cmdCanvasRead(argv.file, { pageId: argv.page, size: argv.size, nextToken: argv.next }))
+      .option("next", { type: "string", describe: "Pagination token" })
+      .option("all", { type: "boolean", default: false, describe: "Follow next_token until the whole document is read" }),
+      async argv => cmdCanvasRead(argv.file, { pageId: argv.page, size: argv.size, nextToken: argv.next, all: argv.all }))
     .command("find <file> <query>", "Find blocks in a smartcanvas document", yy => yy
       .positional("file", { type: "string", demandOption: true })
       .positional("query", { type: "string", demandOption: true }),
@@ -178,7 +197,8 @@ await yargs(hideBin(process.argv))
       content: argv.content,
       perm: argv.perm,
     }))
-  .demandCommand(1, "Specify a subcommand: tools, raw, ls, search, read, delete, info, import, perm, space, canvas, create")
+  .demandCommand(1, "Specify a subcommand: tools, raw, ls, search, read, rename, open, delete, info, import, perm, space, canvas, create")
+  .completion("completion", "Generate shell completion script (source it in your shell rc)")
   .strict()
   .help()
   .alias("help", "h")

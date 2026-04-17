@@ -5,6 +5,7 @@
  * Auth via TENCENT_DOCS_TOKEN from environment or .env.local.
  */
 
+import { spawn } from "child_process";
 import { createHash } from "crypto";
 import { basename, extname } from "path";
 import { env } from "./env";
@@ -519,6 +520,26 @@ export async function readCanvas(
   });
 }
 
+/** Read an entire smartcanvas document, following next_token pagination. */
+export async function readCanvasAll(
+  fileId: string,
+  opts: { pageId?: string; size?: number; maxPages?: number } = {},
+): Promise<string> {
+  const maxPages = Math.max(1, opts.maxPages ?? 100);
+  let nextToken: string | undefined;
+  let pages = 0;
+  const chunks: string[] = [];
+  do {
+    const page = await readCanvas(fileId, { pageId: opts.pageId, size: opts.size, nextToken });
+    if (page.error) throw new Error(`MCP smartcanvas.read error: ${page.error}`);
+    if (page.content) chunks.push(page.content);
+    nextToken = page.next_token;
+    pages += 1;
+    if (pages >= maxPages) break;
+  } while (nextToken);
+  return chunks.join("");
+}
+
 /** Find matching blocks inside a smartcanvas document. */
 export async function findCanvasBlocks(
   fileId: string,
@@ -546,23 +567,31 @@ export async function editCanvas(
 
 // ── CLI command handlers ──────────────────────────────────────────────────
 
-export async function cmdDocsLs(opts: { count?: number; page?: number } = {}) {
+export function docTypeFromUrl(url: string): string {
+  if (url.includes("/sheet/")) return "sheet";
+  if (url.includes("/smartsheet/")) return "smartsheet";
+  if (url.includes("/slide/")) return "slide";
+  if (url.includes("/form/")) return "form";
+  if (url.includes("/pdf/")) return "pdf";
+  if (url.includes("/mind/")) return "mind";
+  if (url.includes("/flowchart/")) return "flowchart";
+  return "doc";
+}
+
+export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean } = {}) {
   const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
+  if (opts.json) { console.log(JSON.stringify(files, null, 2)); return; }
   if (!files.length) { console.log("(no recent documents)"); return; }
   for (const f of files) {
-    const type = f.file_url.includes("/sheet/") ? "sheet"
-      : f.file_url.includes("/smartsheet/") ? "smartsheet"
-      : f.file_url.includes("/slide/") ? "slide"
-      : f.file_url.includes("/form/") ? "form"
-      : f.file_url.includes("/pdf/") ? "pdf"
-      : "doc";
+    const type = docTypeFromUrl(f.file_url);
     console.log(`  [${type.padEnd(10)}] ${f.file_name}  ${f.file_url}`);
   }
 }
 
-export async function cmdDocsSearch(query: string) {
+export async function cmdDocsSearch(query: string, opts: { json?: boolean } = {}) {
   if (!query) { console.log("Usage: qqdocs search <query>"); return; }
   const files = await searchDocs(query);
+  if (opts.json) { console.log(JSON.stringify(files, null, 2)); return; }
   if (!files.length) { console.log(`(no documents matching "${query}")`); return; }
   for (const f of files) {
     console.log(`  ${(f as any).title ?? f.file_name}  ${(f as any).url ?? f.file_url}`);
@@ -574,6 +603,26 @@ export async function cmdDocsRead(fileIdOrUrl: string) {
   const fileId = await resolveFileId(fileIdOrUrl);
   const content = await readDoc(fileId);
   console.log(content);
+}
+
+export async function cmdDocsRename(fileIdOrUrl: string, title: string) {
+  if (!fileIdOrUrl || !title) {
+    console.log("Usage: qqdocs rename <file-id-or-url> <new-title>");
+    return;
+  }
+  const fileId = await resolveFileId(fileIdOrUrl);
+  const result = await renameDoc(fileId, title);
+  printObject({ file_id: fileId, title: result.title ?? title, trace_id: result.trace_id });
+}
+
+export async function cmdDocsOpen(fileIdOrUrl: string) {
+  if (!fileIdOrUrl) { console.log("Usage: qqdocs open <file-id-or-url-or-filename>"); return; }
+  const fileId = await resolveFileId(fileIdOrUrl);
+  const info = await getDocInfo(fileId);
+  const url = (info?.url ?? info?.file_url) as string | undefined;
+  if (!url) throw new Error(`No URL returned for file ${fileId}`);
+  console.log(url);
+  await openUrlInBrowser(url);
 }
 
 export async function cmdDocsDelete(
@@ -621,10 +670,11 @@ export async function cmdDocsDelete(
   });
 }
 
-export async function cmdDocsInfo(fileIdOrUrl: string) {
+export async function cmdDocsInfo(fileIdOrUrl: string, opts: { json?: boolean } = {}) {
   if (!fileIdOrUrl) { console.log("Usage: qqdocs info <file-id-or-url>"); return; }
   const fileId = await resolveFileId(fileIdOrUrl);
   const info = await getDocInfo(fileId);
+  if (opts.json) { console.log(JSON.stringify(info, null, 2)); return; }
   printObject(info);
 }
 
@@ -895,12 +945,17 @@ export async function cmdSpaceMove(fileIdOrUrl: string, spaceId: string, opts: {
   });
 }
 
-export async function cmdCanvasRead(fileIdOrUrl: string, opts: { pageId?: string; size?: number; nextToken?: string } = {}) {
+export async function cmdCanvasRead(fileIdOrUrl: string, opts: { pageId?: string; size?: number; nextToken?: string; all?: boolean } = {}) {
   if (!fileIdOrUrl) {
-    console.log("Usage: qqdocs canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>]");
+    console.log("Usage: qqdocs canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>] [--all]");
     return;
   }
   const fileId = await resolveFileId(fileIdOrUrl);
+  if (opts.all) {
+    const content = await readCanvasAll(fileId, { pageId: opts.pageId, size: opts.size });
+    console.log(content);
+    return;
+  }
   const result = await readCanvas(fileId, opts);
   console.log(result.content ?? "");
   if (result.next_token) console.log(`Next: ${result.next_token}`);
@@ -1165,6 +1220,21 @@ function printObject(obj: Record<string, unknown>) {
     if (v === null || v === undefined || v === "") continue;
     console.log(`  ${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`);
   }
+}
+
+export function browserOpenCommand(platform: NodeJS.Platform = process.platform): { cmd: string; args: (url: string) => string[] } {
+  if (platform === "darwin") return { cmd: "open", args: url => [url] };
+  if (platform === "win32") return { cmd: "cmd", args: url => ["/c", "start", "", url] };
+  return { cmd: "xdg-open", args: url => [url] };
+}
+
+async function openUrlInBrowser(url: string): Promise<void> {
+  const { cmd, args } = browserOpenCommand();
+  const child = spawn(cmd, args(url), { detached: true, stdio: "ignore" });
+  child.on("error", err => {
+    console.log(`Could not open browser (${cmd}): ${err.message}`);
+  });
+  child.unref();
 }
 
 function isRetryableFetchStatus(status: number): boolean {
