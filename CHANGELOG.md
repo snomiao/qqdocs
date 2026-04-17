@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/snomiao/qqdocs/compare/v1.3.0...v1.4.0) (2026-04-17)
+
+
+### Features
+
+* add copy command, home env, and YAML config ([85d8bfb](https://github.com/snomiao/qqdocs/commit/85d8bfb0df24b068411c239613ef8b792fb3492d))
+
 # [1.3.0](https://github.com/snomiao/qqdocs/compare/v1.2.0...v1.3.0) (2026-04-17)
 
 
