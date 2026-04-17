@@ -63,7 +63,7 @@ await yargs(hideBin(process.argv))
   .command("read <file>", "Read document content (file ID, URL, or filename)", y => y
     .positional("file", { type: "string", demandOption: true }),
     async argv => cmdDocsRead(argv.file))
-  .command("rename <file> <title>", "Rename a document", y => y
+  .command(["rename <file> <title>", "mv <file> <title>"], "Rename a document", y => y
     .positional("file", { type: "string", demandOption: true })
     .positional("title", { type: "string", demandOption: true }),
     async argv => cmdDocsRename(argv.file, argv.title))

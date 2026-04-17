@@ -49,7 +49,7 @@ qqdocs raw <tool> --json '{"file_id":"..."}'          # raw tool call
 qqdocs ls [--json]                                   # recent documents
 qqdocs search <query> [--json]                       # keyword search
 qqdocs read <file-id-or-url-or-name>                 # read document content
-qqdocs rename <file-id-or-url-or-name> <new-title>   # rename
+qqdocs rename <file-id-or-url-or-name> <new-title>   # rename (alias: mv)
 qqdocs open <file-id-or-url-or-name>                 # open in browser
 qqdocs cp <file-id-or-url-or-name> [--title <t>]     # copy document (alias: copy)
 qqdocs delete <file-id-or-url>                       # dry run; prints delete confirm code (alias: rm)
