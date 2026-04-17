@@ -571,7 +571,7 @@ export async function cmdDocsSearch(query: string) {
 
 export async function cmdDocsRead(fileIdOrUrl: string) {
   if (!fileIdOrUrl) { console.log("Usage: qqdocs read <file-id-or-url>"); return; }
-  const fileId = extractFileId(fileIdOrUrl);
+  const fileId = await resolveFileId(fileIdOrUrl);
   const content = await readDoc(fileId);
   console.log(content);
 }
@@ -584,7 +584,7 @@ export async function cmdDocsDelete(
     console.log("Usage: qqdocs delete <file-id-or-url> --confirm=<6-digit-code>");
     return;
   }
-  const fileId = extractFileId(fileIdOrUrl);
+  const fileId = await resolveFileId(fileIdOrUrl);
   let expectedConfirmCode = "";
   try {
     expectedConfirmCode = await getDocDeleteConfirmCode(fileId);
@@ -623,7 +623,7 @@ export async function cmdDocsDelete(
 
 export async function cmdDocsInfo(fileIdOrUrl: string) {
   if (!fileIdOrUrl) { console.log("Usage: qqdocs info <file-id-or-url>"); return; }
-  const fileId = extractFileId(fileIdOrUrl);
+  const fileId = await resolveFileId(fileIdOrUrl);
   const info = await getDocInfo(fileId);
   printObject(info);
 }
@@ -742,7 +742,7 @@ export async function cmdDocsImport(
 
 export async function cmdDocsPermission(fileIdOrUrl: string) {
   if (!fileIdOrUrl) { console.log("Usage: qqdocs perm get <file-id-or-url>"); return; }
-  const fileId = extractFileId(fileIdOrUrl);
+  const fileId = await resolveFileId(fileIdOrUrl);
   const permission = await getDocPermission(fileId);
   printObject({
     ...permission,
@@ -755,7 +755,7 @@ export async function cmdDocsSetPermission(fileIdOrUrl: string, policyInput: str
     console.log("Usage: qqdocs perm set <file-id-or-url> <private|link-read|link-edit>");
     return;
   }
-  const fileId = extractFileId(fileIdOrUrl);
+  const fileId = await resolveFileId(fileIdOrUrl);
   let policy: SetDocPermissionPolicy;
   try {
     policy = parseSetDocPermissionPolicy(policyInput);
@@ -886,7 +886,7 @@ export async function cmdSpaceMove(fileIdOrUrl: string, spaceId: string, opts: {
     console.log("Usage: qqdocs space move <file-id-or-url> <space-id> [--parent <node-id>]");
     return;
   }
-  const fileId = extractFileId(fileIdOrUrl);
+  const fileId = await resolveFileId(fileIdOrUrl);
   const result = await moveFileToSpace(fileId, spaceId, opts.parentId);
   printObject({
     file_id: fileId,
@@ -900,7 +900,7 @@ export async function cmdCanvasRead(fileIdOrUrl: string, opts: { pageId?: string
     console.log("Usage: qqdocs canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>]");
     return;
   }
-  const fileId = extractFileId(fileIdOrUrl);
+  const fileId = await resolveFileId(fileIdOrUrl);
   const result = await readCanvas(fileId, opts);
   console.log(result.content ?? "");
   if (result.next_token) console.log(`Next: ${result.next_token}`);
@@ -911,7 +911,7 @@ export async function cmdCanvasFind(fileIdOrUrl: string, query: string) {
     console.log("Usage: qqdocs canvas find <file-id-or-url> <query>");
     return;
   }
-  const fileId = extractFileId(fileIdOrUrl);
+  const fileId = await resolveFileId(fileIdOrUrl);
   const result = await findCanvasBlocks(fileId, query);
   const blocks = result.blocks ?? [];
   if (!blocks.length) { console.log("(no matching blocks)"); return; }
@@ -923,7 +923,7 @@ export async function cmdCanvasEdit(fileIdOrUrl: string, action: CanvasEditActio
     console.log("Usage: qqdocs canvas edit <file-id-or-url> <insert-before|insert-after|append|update|delete> [--id <block-id>] [--content <mdx>]");
     return;
   }
-  const fileId = extractFileId(fileIdOrUrl);
+  const fileId = await resolveFileId(fileIdOrUrl);
   const normalizedAction = normalizeCanvasEditAction(action);
   const result = await editCanvas(fileId, normalizedAction, opts);
   printObject({
@@ -935,13 +935,50 @@ export async function cmdCanvasEdit(fileIdOrUrl: string, action: CanvasEditActio
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-/** Extract file_id from a docs.qq.com URL, or pass through a raw ID. */
-export function extractFileId(input: string): string {
-  const m = input.match(/docs\.qq\.com\/(?:doc|sheet|slide|smartsheet|form|pdf|mind|flowchart)\/([A-Za-z0-9]+)/);
+/** Extract file_id from a docs.qq.com URL, or null if not URL-shaped. */
+export function tryExtractFileIdFromUrl(input: string): string | null {
+  const m = input.match(/docs\.qq\.com\/(?:doc|sheet|slide|smartsheet|form|pdf|mind|flowchart|aio)\/([A-Za-z0-9]+)/);
   if (m) return m[1];
   const m2 = input.match(/docs\.qq\.com\/[^/]+\/([A-Za-z0-9]+)/);
   if (m2) return m2[1];
-  return input;
+  return null;
+}
+
+/** Extract file_id from a docs.qq.com URL, or pass through a raw ID. */
+export function extractFileId(input: string): string {
+  return tryExtractFileIdFromUrl(input) ?? input;
+}
+
+/** Heuristic: does the input look like a bare Tencent Docs file_id? */
+export function looksLikeFileId(input: string): boolean {
+  return /^[A-Za-z0-9]{10,}$/.test(input.trim());
+}
+
+/** Pick exactly one file from a search result set; throw with a candidate list when ambiguous. */
+export function pickFileFromSearchResults<T extends { file_id: string; file_name?: string; file_url?: string }>(
+  name: string,
+  results: T[],
+): T {
+  const titleOf = (f: any) => f.file_name ?? f.title ?? "";
+  const urlOf = (f: any) => f.file_url ?? f.url ?? "";
+  const exact = results.filter(f => titleOf(f) === name);
+  const pool = exact.length ? exact : results;
+  if (pool.length === 0) throw new Error(`No document named "${name}".`);
+  if (pool.length > 1) {
+    const lines = pool.map(f => `  ${titleOf(f)}  ${urlOf(f)}  (id: ${f.file_id})`).join("\n");
+    throw new Error(`Multiple documents named "${name}":\n${lines}\nPass a file ID or URL, or rename to disambiguate.`);
+  }
+  return pool[0];
+}
+
+/** Resolve URL / raw ID / filename to a file_id. Searches by filename when needed. */
+export async function resolveFileId(input: string): Promise<string> {
+  const fromUrl = tryExtractFileIdFromUrl(input);
+  if (fromUrl) return fromUrl;
+  const trimmed = input.trim();
+  if (looksLikeFileId(trimmed)) return trimmed;
+  const hits = await searchDocs(trimmed);
+  return pickFileFromSearchResults(trimmed, hits as any).file_id;
 }
 
 export function describeDocPermissionPolicy(policy: number): string {

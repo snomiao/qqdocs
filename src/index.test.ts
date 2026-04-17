@@ -7,6 +7,8 @@ import {
   describeDocPermissionPolicy,
   extractFileId,
   fetchWithRetry,
+  looksLikeFileId,
+  pickFileFromSearchResults,
   formatDeleteDocCommand,
   formatGetDocPermissionCommand,
   formatSetDocPermissionCommand,
@@ -29,6 +31,38 @@ describe("extractFileId", () => {
 
   test("passes raw ids through unchanged", () => {
     expect(extractFileId("dExampleRawId123")).toBe("dExampleRawId123");
+  });
+
+  test("extracts ids from /aio/ URLs", () => {
+    expect(extractFileId("https://docs.qq.com/aio/DZExqQkJCUmpMekhR")).toBe("DZExqQkJCUmpMekhR");
+  });
+});
+
+describe("file id resolution", () => {
+  test("looksLikeFileId rejects Chinese filenames and short strings", () => {
+    expect(looksLikeFileId("账本")).toBe(false);
+    expect(looksLikeFileId("short")).toBe(false);
+    expect(looksLikeFileId("DZFJhVkJHSUdJcENR")).toBe(true);
+  });
+
+  test("pickFileFromSearchResults prefers exact title match", () => {
+    const results = [
+      { file_id: "A", file_name: "账本副本", file_url: "u1" },
+      { file_id: "B", file_name: "账本", file_url: "u2" },
+    ];
+    expect(pickFileFromSearchResults("账本", results).file_id).toBe("B");
+  });
+
+  test("pickFileFromSearchResults throws a listing when ambiguous", () => {
+    const results = [
+      { file_id: "A", file_name: "账本", file_url: "u1" },
+      { file_id: "B", file_name: "账本", file_url: "u2" },
+    ];
+    expect(() => pickFileFromSearchResults("账本", results)).toThrow(/Multiple documents named "账本"[\s\S]*id: A[\s\S]*id: B/);
+  });
+
+  test("pickFileFromSearchResults throws on no match", () => {
+    expect(() => pickFileFromSearchResults("missing", [])).toThrow('No document named "missing".');
   });
 });
 

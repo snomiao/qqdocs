@@ -72,8 +72,11 @@ qqdocs create <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsh
 The live Tencent Docs MCP surface changes over time. `qqdocs tools` is the
 source of truth for what the current server actually exposes.
 
-File arguments accept either a raw `file_id` or a full `docs.qq.com` URL —
-the ID is extracted automatically.
+File arguments accept a raw `file_id`, a full `docs.qq.com` URL, or a
+filename. When a filename is given, qqdocs searches Tencent Docs and
+resolves to a unique match; if multiple documents share the name the
+command throws a list of candidates so you can disambiguate by ID, URL,
+or rename.
 
 `qqdocs delete` is intentionally two-step. Running it without `--confirm`
 does a dry run and prints the current 6-digit confirmation code derived from
