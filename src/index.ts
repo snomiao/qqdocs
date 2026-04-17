@@ -619,7 +619,13 @@ export async function cmdDocsSearch(query: string, opts: { json?: boolean } = {}
 export async function cmdDocsRead(fileIdOrUrl: string) {
   if (!fileIdOrUrl) { console.log("Usage: qqdocs read <file-id-or-url>"); return; }
   const fileId = await resolveFileId(fileIdOrUrl);
-  const content = await readDoc(fileId);
+  const [info, content] = await Promise.all([
+    getDocInfo(fileId).catch(() => null),
+    readDoc(fileId),
+  ]);
+  const title = (info?.title ?? info?.file_name) as string | undefined;
+  const url = (info?.url ?? info?.file_url) as string | undefined;
+  if (title && url) console.log(`# [${title}](${url})\n`);
   console.log(content);
 }
 
