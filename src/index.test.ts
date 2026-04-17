@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { configSearchPaths } from "./config";
 import {
   browserOpenCommand,
   createDeleteConfirmCode,
@@ -203,6 +204,20 @@ describe("raw helper", () => {
     expect(parseJsonObject("{\"a\":1}")).toEqual({ a: 1 });
     expect(() => parseJsonObject("[]")).toThrow("JSON arguments must be an object.");
     expect(() => parseJsonObject("{")).toThrow("Invalid JSON arguments:");
+  });
+});
+
+describe("config", () => {
+  test("searches $PWD first, then $HOME, preferring .qqdocs/config.yaml", () => {
+    const cwd = "/tmp/proj";
+    const home = "/tmp/home";
+    const paths = configSearchPaths(cwd, home);
+    expect(paths).toEqual([
+      `${cwd}/.qqdocs/config.yaml`,
+      `${cwd}/.qqdocs.config.yaml`,
+      `${home}/.qqdocs/config.yaml`,
+      `${home}/.qqdocs.config.yaml`,
+    ]);
   });
 });
 

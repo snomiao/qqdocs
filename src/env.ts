@@ -3,14 +3,21 @@
 // Process env always wins over file values.
 
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import { resolve } from "path";
 
 function loadEnv(): Record<string, string> {
   const result: Record<string, string> = {};
   const root = resolve(import.meta.dir, "..");
-  const dirs = [root, resolve(root, ".."), resolve(root, "../.."), process.cwd()];
-  for (const dir of dirs) {
-    const f = resolve(dir, ".env.local");
+  const home = homedir();
+  const files = [
+    resolve(root, ".env.local"),
+    resolve(root, "..", ".env.local"),
+    resolve(root, "../..", ".env.local"),
+    resolve(process.cwd(), ".env.local"),
+    resolve(home, ".qqdocs", ".env.local"),
+  ];
+  for (const f of files) {
     if (!existsSync(f)) continue;
     const entries = readFileSync(f, "utf-8").replace(/\r/g, "").split("\n")
       .map(l => l.match(/^([^#=]+)=(.*)$/))

@@ -42,6 +42,7 @@
     "semantic-release": "semantic-release"
   },
   "dependencies": {
+    "yaml": "^2.8.3",
     "yargs": "^18.0.0"
   },
   "devDependencies": {

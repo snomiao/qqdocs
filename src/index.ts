@@ -7,8 +7,24 @@
 
 import { spawn } from "child_process";
 import { createHash } from "crypto";
+import { readFile, stat } from "fs/promises";
 import { basename, extname } from "path";
 import { env } from "./env";
+
+const sleepMs = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+async function readLocalFile(filePath: string): Promise<Buffer> {
+  try {
+    const s = await stat(filePath);
+    if (!s.isFile()) throw new Error(`Not a regular file: ${filePath}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`Local file not found: ${filePath}`);
+    }
+    throw error;
+  }
+  return readFile(filePath);
+}
 
 const DOCS_MCP_URL = "https://docs.qq.com/openapi/mcp";
 const RETRYABLE_FETCH_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -46,7 +62,7 @@ function getToken(): string {
 /** Retry transient HTTP responses (429/5xx) and fetch-level network failures. */
 export async function fetchWithRetry(url: string, init: RequestInit, opts: FetchWithRetryOptions = {}): Promise<Response> {
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const sleep = opts.sleep ?? Bun.sleep;
+  const sleep = opts.sleep ?? sleepMs;
   const maxAttempts = Math.max(1, Math.floor(opts.maxAttempts ?? DEFAULT_FETCH_RETRY_MAX_ATTEMPTS));
   const retryNetworkErrors = opts.retryNetworkErrors ?? true;
 
@@ -298,6 +314,11 @@ export async function renameDoc(fileId: string, title: string): Promise<{ file_i
   return docs("manage.rename_file_title", { file_id: fileId, title });
 }
 
+/** Duplicate a document. The copy is private (only owner can view). */
+export async function copyDoc(fileId: string): Promise<{ id: string; title: string; url: string; trace_id?: string }> {
+  return docs("manage.copy_file", { file_id: fileId }, NO_NETWORK_RETRY);
+}
+
 /** Prepare an async import and receive the signed upload URL. */
 export async function preImportFile(fileName: string, fileSize: number, fileMd5: string): Promise<ImportPreparation> {
   return docs("manage.pre_import", { file_name: fileName, file_size: fileSize, file_md5: fileMd5 }, NO_NETWORK_RETRY);
@@ -349,7 +370,7 @@ export async function waitForImport(
     if (Date.now() - startedAt >= timeoutMs) {
       throw new Error(`Import timed out after ${timeoutMs}ms (last progress: ${progress.progress ?? 0}%).`);
     }
-    await Bun.sleep(pollIntervalMs);
+    await sleepMs(pollIntervalMs);
   }
 }
 
@@ -363,10 +384,7 @@ export async function importLocalFile(
     onProgress?: (progress: ImportProgress) => void;
   } = {},
 ): Promise<ImportResult> {
-  const file = Bun.file(filePath);
-  if (!(await file.exists())) throw new Error(`Local file not found: ${filePath}`);
-
-  const bytes = await file.bytes();
+  const bytes = await readLocalFile(filePath);
   const fileName = opts.fileName ?? basename(filePath);
   const fileSize = bytes.length;
   const fileMd5 = createHash("md5").update(bytes).digest("hex");
@@ -615,6 +633,18 @@ export async function cmdDocsRename(fileIdOrUrl: string, title: string) {
   printObject({ file_id: fileId, title: result.title ?? title, trace_id: result.trace_id });
 }
 
+export async function cmdDocsCopy(fileIdOrUrl: string, opts: { title?: string } = {}) {
+  if (!fileIdOrUrl) { console.log("Usage: qqdocs cp <file-id-or-url-or-filename> [--title <new-title>]"); return; }
+  const fileId = await resolveFileId(fileIdOrUrl);
+  const copy = await copyDoc(fileId);
+  let finalTitle = copy.title;
+  if (opts.title && opts.title !== copy.title) {
+    const renamed = await renameDoc(copy.id, opts.title);
+    finalTitle = renamed.title ?? opts.title;
+  }
+  printObject({ file_id: copy.id, title: finalTitle, url: copy.url, source_file_id: fileId });
+}
+
 export async function cmdDocsOpen(fileIdOrUrl: string) {
   if (!fileIdOrUrl) { console.log("Usage: qqdocs open <file-id-or-url-or-filename>"); return; }
   const fileId = await resolveFileId(fileIdOrUrl);
@@ -735,10 +765,7 @@ export async function cmdDocsImport(
   let displayTitle = opts.title ?? defaultImportedDocTitle(filePath, strategy);
 
   if (strategy.kind === "smartcanvas") {
-    const file = Bun.file(filePath);
-    if (!(await file.exists())) throw new Error(`Local file not found: ${filePath}`);
-
-    const content = await file.text();
+    const content = (await readLocalFile(filePath)).toString("utf8");
     const result = await createDoc(displayTitle, "smartcanvas", {
       content,
       contentFormat: strategy.contentFormat,

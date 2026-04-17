@@ -17,6 +17,7 @@ import {
   cmdCanvasEdit,
   cmdCanvasFind,
   cmdCanvasRead,
+  cmdDocsCopy,
   cmdDocsCreate,
   cmdDocsDelete,
   cmdDocsInfo,
@@ -69,6 +70,10 @@ await yargs(hideBin(process.argv))
   .command("open <file>", "Open a document in the default browser", y => y
     .positional("file", { type: "string", demandOption: true }),
     async argv => cmdDocsOpen(argv.file))
+  .command(["cp <file>", "copy <file>"], "Copy a document", y => y
+    .positional("file", { type: "string", demandOption: true })
+    .option("title", { type: "string", describe: "New title for the copy" }),
+    async argv => cmdDocsCopy(argv.file, { title: argv.title }))
   .command("delete <file>", "Dry-run document delete; prints required --confirm=<6-digit-code>, then deletes when provided", y => y
     .positional("file", { type: "string", demandOption: true })
     .option("confirm", { type: "string", alias: "c", describe: "6-digit code derived from current document content" }),

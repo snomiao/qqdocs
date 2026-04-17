@@ -28,9 +28,17 @@ Get a token from [docs.qq.com MCP settings](https://docs.qq.com/openapi/mcp)
 and either:
 
 - export `TENCENT_DOCS_TOKEN=...` in your shell, or
-- put `TENCENT_DOCS_TOKEN=...` in a `.env.local` file next to the package
-  (or in any parent directory, or in the current working directory —
-  first one wins).
+- put `TENCENT_DOCS_TOKEN=...` in a `.env.local` file. Lookup order
+  (first hit wins): package dir, its parents, the current working
+  directory, and `$HOME/.qqdocs/.env.local`.
+
+Non-secret defaults (e.g. default space, default permission) can live
+in a YAML config. Lookup order:
+
+- `$PWD/.qqdocs/config.yaml`
+- `$PWD/.qqdocs.config.yaml`
+- `$HOME/.qqdocs/config.yaml`
+- `$HOME/.qqdocs.config.yaml`
 
 ## CLI
 
@@ -43,6 +51,7 @@ qqdocs search <query> [--json]                       # keyword search
 qqdocs read <file-id-or-url-or-name>                 # read document content
 qqdocs rename <file-id-or-url-or-name> <new-title>   # rename
 qqdocs open <file-id-or-url-or-name>                 # open in browser
+qqdocs cp <file-id-or-url-or-name> [--title <t>]     # copy document (alias: copy)
 qqdocs delete <file-id-or-url>                       # dry run; prints delete confirm code
 qqdocs delete <file-id-or-url> --confirm=123456      # delete using current content-hash code
 qqdocs delete <file-id-or-url> -c 123456             # same as --confirm
@@ -125,6 +134,7 @@ The `create` command also prints the new document's initial policy plus ready-to
 ```ts
 import {
   callTool,
+  copyDoc,
   createDoc,
   createSpace,
   createSpaceDocNode,
@@ -170,6 +180,7 @@ const { url } = await createDoc("New Doc", "smartcanvas", {
 });
 const imported = await importLocalFile("./report.pdf");
 await renameDoc(imported.file_id, "Quarterly Report");
+const copy = await copyDoc("YOUR_FILE_ID");
 ```
 
 All functions throw on MCP errors (`Error: MCP error: <message>`).
