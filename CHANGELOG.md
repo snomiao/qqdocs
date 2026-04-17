@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/snomiao/qqdocs/compare/v1.4.0...v1.5.0) (2026-04-17)
+
+
+### Features
+
+* shorten delete confirm code to 4 digits, alias `rm` for `delete` ([3067d63](https://github.com/snomiao/qqdocs/commit/3067d6354be36a408157dea0f7a1ebfc748c6c77))
+
 # [1.4.0](https://github.com/snomiao/qqdocs/compare/v1.3.0...v1.4.0) (2026-04-17)
 
 
