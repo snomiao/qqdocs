@@ -4,6 +4,7 @@ bun.lock
 .env
 .env.local
 .env.*.local
+CLAUDE.md
 dist
 coverage
 .DS_Store

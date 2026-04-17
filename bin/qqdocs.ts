@@ -1,15 +1,47 @@
 #!/usr/bin/env bun
 // qqdocs — standalone CLI for Tencent Docs (docs.qq.com).
 
+import { basename } from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import {
-  cmdDocsLs, cmdDocsSearch, cmdDocsRead, cmdDocsInfo, cmdDocsCreate,
+  type CanvasEditActionInput,
+  type SpaceDocTypeInput,
+  type SmartCanvasContentFormat,
+  cmdCanvasEdit,
+  cmdCanvasFind,
+  cmdCanvasRead,
+  cmdDocsCreate,
+  cmdDocsDelete,
+  cmdDocsInfo,
+  cmdDocsImport,
+  cmdDocsLs,
+  cmdDocsPermission,
+  cmdDocsRead,
+  cmdDocsSearch,
+  cmdDocsSetPermission,
+  cmdRaw,
+  cmdSpaceCreate,
+  cmdSpaceLink,
+  cmdSpaceList,
+  cmdSpaceLs,
+  cmdSpaceMkdir,
+  cmdSpaceMkdoc,
+  cmdSpaceMove,
+  cmdSpaceRm,
+  cmdTools,
 } from "../src/index";
 
 await yargs(hideBin(process.argv))
-  .scriptName("qqdocs")
+  .scriptName(basename(process.argv[1] ?? "qqdocs"))
   .usage("$0 <command> [options]")
+  .command("tools [pattern]", "List live Tencent Docs MCP tools", y => y
+    .positional("pattern", { type: "string" }),
+    async argv => cmdTools(argv.pattern))
+  .command("raw <tool>", "Call a raw Tencent Docs MCP tool", y => y
+    .positional("tool", { type: "string", demandOption: true })
+    .option("json", { type: "string", default: "{}", describe: "JSON object arguments" }),
+    async argv => cmdRaw(argv.tool, argv.json))
   .command("ls", "List recently viewed documents", y => y
     .option("count", { type: "number", default: 20, alias: "n" })
     .option("page", { type: "number", default: 1, alias: "p" }),
@@ -20,18 +52,133 @@ await yargs(hideBin(process.argv))
   .command("read <file>", "Read document content (file ID or URL)", y => y
     .positional("file", { type: "string", demandOption: true }),
     async argv => cmdDocsRead(argv.file))
+  .command("delete <file>", "Dry-run document delete; prints required --confirm=<6-digit-code>, then deletes when provided", y => y
+    .positional("file", { type: "string", demandOption: true })
+    .option("confirm", { type: "string", alias: "c", describe: "6-digit code derived from current document content" }),
+    async argv => cmdDocsDelete(argv.file, { confirm: argv.confirm }))
   .command("info <file>", "Show document metadata (file ID or URL)", y => y
     .positional("file", { type: "string", demandOption: true }),
     async argv => cmdDocsInfo(argv.file))
+  .command(["import <path>", "upload <path>"], "Import a local file or create a doc from Markdown", y => y
+    .positional("path", { type: "string", demandOption: true, describe: "Local file path" })
+    .option("title", { type: "string", describe: "Document title override" })
+    .option("perm", { type: "string", describe: "private|link-read|link-edit" })
+    .option("space", { type: "string", describe: "Target space ID" })
+    .option("parent", { type: "string", describe: "Target parent node ID inside the space" })
+    .option("poll", { type: "number", default: 5000, describe: "Import polling interval in ms" })
+    .option("timeout", { type: "number", default: 300000, describe: "Import timeout in ms" }),
+    async argv => cmdDocsImport(argv.path, {
+      title: argv.title,
+      perm: argv.perm,
+      spaceId: argv.space,
+      parentId: argv.parent,
+      pollIntervalMs: argv.poll,
+      timeoutMs: argv.timeout,
+    }))
+  .command("perm", "Permission subcommands: get <url>; set <url> <private|link-read|link-edit>", y => y
+    .command("get <file>", "Get document permission", yy => yy
+      .positional("file", { type: "string", demandOption: true }),
+      async argv => cmdDocsPermission(argv.file))
+    .command("set <file> <policy>", "Set document permission", yy => yy
+      .positional("file", { type: "string", demandOption: true })
+      .positional("policy", { type: "string", demandOption: true, describe: "private|link-read|link-edit" }),
+      async argv => cmdDocsSetPermission(argv.file, argv.policy))
+    .demandCommand(1))
+  .command("space", "Space management commands", y => y
+    .command("list", "List spaces", yy => yy
+      .option("page", { type: "number", default: 0, alias: "p" })
+      .option("scope", { type: "string", choices: ["all", "mine", "joined"] as const })
+      .option("order", { type: "string", choices: ["preview", "edited", "created"] as const })
+      .option("asc", { type: "boolean", default: false }),
+      async argv => cmdSpaceList({
+        page: argv.page,
+        scope: argv.scope,
+        order: argv.order,
+        descending: argv.asc ? false : undefined,
+      }))
+    .command("create <title>", "Create a new space", yy => yy
+      .positional("title", { type: "string", demandOption: true })
+      .option("description", { type: "string" }),
+      async argv => cmdSpaceCreate(argv.title, { description: argv.description }))
+    .command("ls <space>", "List nodes inside a space", yy => yy
+      .positional("space", { type: "string", demandOption: true })
+      .option("parent", { type: "string", describe: "Parent node ID" })
+      .option("page", { type: "number", default: 0, alias: "p" }),
+      async argv => cmdSpaceLs(argv.space, { parentId: argv.parent, page: argv.page }))
+    .command("mkdir <space> <title>", "Create a folder inside a space", yy => yy
+      .positional("space", { type: "string", demandOption: true })
+      .positional("title", { type: "string", demandOption: true })
+      .option("parent", { type: "string", describe: "Parent node ID" })
+      .option("before", { type: "boolean", default: false }),
+      async argv => cmdSpaceMkdir(argv.space, argv.title, { parentId: argv.parent, isBefore: argv.before }))
+    .command("mkdoc <space> <title>", "Create a document node inside a space", yy => yy
+      .positional("space", { type: "string", demandOption: true })
+      .positional("title", { type: "string", demandOption: true })
+      .option("type", {
+        type: "string",
+        default: "smartcanvas",
+        choices: ["smartcanvas", "doc", "sheet", "slide", "mind", "flowchart", "smartsheet", "form"] as const,
+      })
+      .option("parent", { type: "string", describe: "Parent node ID" })
+      .option("before", { type: "boolean", default: false }),
+      async argv => cmdSpaceMkdoc(argv.space, argv.title, { type: argv.type as SpaceDocTypeInput, parentId: argv.parent, isBefore: argv.before }))
+    .command("link <space> <title> <url>", "Create a link node inside a space", yy => yy
+      .positional("space", { type: "string", demandOption: true })
+      .positional("title", { type: "string", demandOption: true })
+      .positional("url", { type: "string", demandOption: true })
+      .option("description", { type: "string" })
+      .option("parent", { type: "string", describe: "Parent node ID" })
+      .option("before", { type: "boolean", default: false }),
+      async argv => cmdSpaceLink(argv.space, argv.title, argv.url, {
+        description: argv.description,
+        parentId: argv.parent,
+        isBefore: argv.before,
+      }))
+    .command("rm <space> <node>", "Delete a node from a space", yy => yy
+      .positional("space", { type: "string", demandOption: true })
+      .positional("node", { type: "string", demandOption: true })
+      .option("all", { type: "boolean", default: false, describe: "Delete the whole subtree" }),
+      async argv => cmdSpaceRm(argv.space, argv.node, { all: argv.all }))
+    .command("move <file> <space>", "Move a file into a space", yy => yy
+      .positional("file", { type: "string", demandOption: true })
+      .positional("space", { type: "string", demandOption: true })
+      .option("parent", { type: "string", describe: "Target parent node ID" }),
+      async argv => cmdSpaceMove(argv.file, argv.space, { parentId: argv.parent }))
+    .demandCommand(1))
+  .command("canvas", "Smartcanvas commands", y => y
+    .command("read <file>", "Read smartcanvas content as MDX", yy => yy
+      .positional("file", { type: "string", demandOption: true })
+      .option("page", { type: "string", describe: "Page ID" })
+      .option("size", { type: "number" })
+      .option("next", { type: "string", describe: "Pagination token" }),
+      async argv => cmdCanvasRead(argv.file, { pageId: argv.page, size: argv.size, nextToken: argv.next }))
+    .command("find <file> <query>", "Find blocks in a smartcanvas document", yy => yy
+      .positional("file", { type: "string", demandOption: true })
+      .positional("query", { type: "string", demandOption: true }),
+      async argv => cmdCanvasFind(argv.file, argv.query))
+    .command("edit <file> <action>", "Edit a smartcanvas document", yy => yy
+      .positional("file", { type: "string", demandOption: true })
+      .positional("action", { type: "string", demandOption: true })
+      .option("id", { type: "string", describe: "Target block ID" })
+      .option("content", { type: "string", describe: "MDX content" }),
+      async argv => cmdCanvasEdit(argv.file, argv.action as CanvasEditActionInput, { id: argv.id, content: argv.content }))
+    .demandCommand(1))
   .command("create <title>", "Create a new document", y => y
     .positional("title", { type: "string", demandOption: true })
     .option("type", {
       type: "string", default: "smartcanvas",
       choices: ["smartcanvas", "doc", "sheet", "slide", "mind", "flowchart", "smartsheet", "form"],
     })
-    .option("content", { type: "string", describe: "Initial content (MDX for smartcanvas)" }),
-    async argv => cmdDocsCreate(argv.title, { type: argv.type, content: argv.content }))
-  .demandCommand(1, "Specify a subcommand: ls, search, read, info, create")
+    .option("format", { type: "string", choices: ["mdx", "markdown"] as const, describe: "smartcanvas content format" })
+    .option("perm", { type: "string", describe: "private|link-read|link-edit" })
+    .option("content", { type: "string", describe: "Initial content (MDX or Markdown for smartcanvas)" }),
+    async argv => cmdDocsCreate(argv.title, {
+      type: argv.type,
+      format: argv.format as SmartCanvasContentFormat | undefined,
+      content: argv.content,
+      perm: argv.perm,
+    }))
+  .demandCommand(1, "Specify a subcommand: tools, raw, ls, search, read, delete, info, import, perm, space, canvas, create")
   .strict()
   .help()
   .alias("help", "h")

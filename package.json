@@ -23,8 +23,8 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "qqdocs": "./bin/qqdocs.ts",
-    "qqd": "./bin/qqdocs.ts"
+    "qqdoc": "./bin/qqdocs.ts",
+    "qqdocs": "./bin/qqdocs.ts"
   },
   "files": [
     "src/",

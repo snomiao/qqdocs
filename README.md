@@ -12,6 +12,11 @@ bun add qqdocs        # library
 bun add -g qqdocs     # `qqdocs` CLI
 ```
 
+Published binaries:
+
+- `qqdoc`
+- `qqdocs`
+
 ## Auth
 
 Get a token from [docs.qq.com MCP settings](https://docs.qq.com/openapi/mcp)
@@ -24,28 +29,126 @@ and either:
 
 ## CLI
 
+```bash
+qqdoc tools [pattern]                                # list live MCP tools
+qqdoc raw <tool> --json '{"file_id":"..."}'          # raw tool call
+
+qqdocs ls                                            # recent documents
+qqdocs search <query>                                # keyword search
+qqdocs read <file-id-or-url>                         # read document content
+qqdocs delete <file-id-or-url>                       # dry run; prints delete confirm code
+qqdocs delete <file-id-or-url> --confirm=123456      # delete using current content-hash code
+qqdocs delete <file-id-or-url> -c 123456             # same as --confirm
+qqdocs info <file-id-or-url>                         # document metadata
+qqdoc import <path> [--title <title>]                # import pdf/docx/pptx/... or ingest .md/.mdx
+qqdocs perm get <file-id-or-url>                     # read permission
+qqdocs perm set <file-id-or-url> <private|link-read|link-edit>
+
+qqdoc space list [--scope all|mine|joined]
+qqdoc space create <title> [--description <text>]
+qqdoc space ls <space-id> [--parent <node-id>] [--page <n>]
+qqdoc space mkdir <space-id> <title> [--parent <node-id>]
+qqdoc space mkdoc <space-id> <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsheet|form]
+qqdoc space link <space-id> <title> <url> [--description <text>]
+qqdoc space rm <space-id> <node-id> [--all]
+qqdoc space move <file-id-or-url> <space-id> [--parent <node-id>]
+
+qqdoc canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>]
+qqdoc canvas find <file-id-or-url> <query>
+qqdoc canvas edit <file-id-or-url> <insert-before|insert-after|append|update|delete>
+                 [--id <block-id>] [--content '<mdx>']
+
+qqdocs create <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsheet|form]
+                      [--format mdx|markdown]
+                      [--content '<mdx-or-markdown>']
+                      [--perm private|link-read|link-edit]
 ```
-qqdocs ls                          # recent documents
-qqdocs search <query>              # search by keyword
-qqdocs read <file-id-or-url>       # print document content
-qqdocs info <file-id-or-url>       # print document metadata
-qqdocs create <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart]
-                      [--content '<mdx>']
-```
+
+The live Tencent Docs MCP surface changes over time. `qqdoc tools` is the
+source of truth for what the current server actually exposes.
 
 File arguments accept either a raw `file_id` or a full `docs.qq.com` URL —
 the ID is extracted automatically.
 
+`qqdocs delete` is intentionally two-step. Running it without `--confirm`
+does a dry run and prints the current 6-digit confirmation code derived from
+the document's current content. The delete only happens when that exact code
+is passed back via `--confirm=<6-digit-code>`, so if the content changes, the
+code changes.
+
+`qqdoc import` supports:
+
+- Markdown sources: `.md`, `.markdown`, `.mdx`
+- Tencent async import formats: `xls`, `xlsx`, `csv`, `doc`, `docx`, `txt`, `text`, `ppt`, `pptx`, `pdf`, `xmind`
+
+For `.md` and `.markdown`, the CLI creates a smartcanvas document with
+`content_format=markdown`.
+For `.mdx`, it creates a smartcanvas document with MDX content.
+For the importable binary/text formats, the CLI uploads the local file,
+starts Tencent Docs async import, waits for completion, and can optionally
+rename the result with `--title`.
+
+Permission policies:
+
+- `private`
+- `link-read`
+- `link-edit`
+
+New documents are private by default.
+`qqdocs perm get` can report all three states.
+`qqdocs perm set` accepts `private|link-read|link-edit`, but Tencent Docs MCP currently only supports setting the public modes, so `private` prints a clear unsupported message.
+The `create` command also prints the new document's initial policy plus ready-to-run `qqdocs perm get` and `qqdocs perm set` commands.
+
 ## Library
 
 ```ts
-import { listRecent, searchDocs, readDoc, getDocInfo, createDoc } from "qqdocs";
+import {
+  callTool,
+  createDoc,
+  createSpace,
+  createSpaceDocNode,
+  editCanvas,
+  findCanvasBlocks,
+  getDocInfo,
+  getDocDeleteConfirmCode,
+  importLocalFile,
+  getDocPermission,
+  listRecent,
+  listSpaceNodes,
+  listSpaces,
+  listTools,
+  renameDoc,
+  readCanvas,
+  readDoc,
+  searchDocs,
+  setDocPermission,
+} from "qqdocs";
 
+const tools = await listTools("space");
 const files = await listRecent(10);
 const hits = await searchDocs("Q4 planning");
-const content = await readDoc("DZHRkcGZ5TXpyaVZB");
-const info = await getDocInfo("DZHRkcGZ5TXpyaVZB");
-const { url } = await createDoc("New Doc", "smartcanvas", { content: "# Hello" });
+const content = await readDoc("YOUR_FILE_ID");
+const info = await getDocInfo("YOUR_FILE_ID");
+const deleteConfirmCode = await getDocDeleteConfirmCode("YOUR_FILE_ID");
+const permission = await getDocPermission("YOUR_FILE_ID");
+await setDocPermission("YOUR_FILE_ID", "link-read");
+
+const spaces = await listSpaces({ scope: "all" });
+const space = await createSpace("Docs Playground");
+const nodes = await listSpaceNodes("space_id_here");
+const node = await createSpaceDocNode("space_id_here", "New Space Doc", "smartcanvas");
+
+const canvas = await readCanvas("YOUR_FILE_ID");
+const blocks = await findCanvasBlocks("YOUR_FILE_ID", "Hello");
+await editCanvas("YOUR_FILE_ID", "append", { content: "<Text>Hello</Text>" });
+
+const raw = await callTool("manage.query_file_info", { file_id: "YOUR_FILE_ID" });
+const { url } = await createDoc("New Doc", "smartcanvas", {
+  content: "# Hello",
+  contentFormat: "markdown",
+});
+const imported = await importLocalFile("./report.pdf");
+await renameDoc(imported.file_id, "Quarterly Report");
 ```
 
 All functions throw on MCP errors (`Error: MCP error: <message>`).
