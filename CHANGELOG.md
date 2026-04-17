@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/snomiao/qqdocs/compare/v1.1.0...v1.1.1) (2026-04-17)
+
+
+### Bug Fixes
+
+* guard non-idempotent MCP writes and surface missing content ([133b37a](https://github.com/snomiao/qqdocs/commit/133b37a33ec9db2a8cd1824bdf6080f6e9a2d80a))
+
 # [1.1.0](https://github.com/snomiao/qqdocs/compare/v1.0.0...v1.1.0) (2026-04-17)
 
 
