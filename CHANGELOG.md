@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/snomiao/qqdocs/compare/v1.10.0...v1.11.0) (2026-04-18)
+
+
+### Features
+
+* add --dates flag to ls for parallel last-modified fetch ([8bcc8f7](https://github.com/snomiao/qqdocs/commit/8bcc8f7e0ee09ff568b12c50e00c3277a942c01e))
+
 # [1.10.0](https://github.com/snomiao/qqdocs/compare/v1.9.0...v1.10.0) (2026-04-18)
 
 
