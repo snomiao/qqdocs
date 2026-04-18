@@ -1,3 +1,10 @@
+## [1.22.1](https://github.com/snomiao/qqdocs/compare/v1.22.0...v1.22.1) (2026-04-18)
+
+
+### Bug Fixes
+
+* await incrementUsage to prevent write being dropped on process exit ([ce48e5c](https://github.com/snomiao/qqdocs/commit/ce48e5c9c5ff2568de1ffe5e8224d169e7ccf2c6))
+
 # [1.22.0](https://github.com/snomiao/qqdocs/compare/v1.21.1...v1.22.0) (2026-04-18)
 
 
