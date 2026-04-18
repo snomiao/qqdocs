@@ -1696,8 +1696,36 @@ export async function cmdDocsUsage(opts: { tier?: string } = {}): Promise<void> 
   const limits = TIER_LIMITS[tierKey] ?? TIER_LIMITS.free!;
   console.log("API usage (Tencent Docs MCP):");
   for (const line of formatUsageLines(data, limits)) console.log(line);
+  if (data.inferredTier && data.inferredTier !== "free") {
+    console.log(`  (tier auto-detected: ${data.inferredTier})`);
+  }
   console.log();
   console.log(`  Tier limits — free: 100/day  member: 1000/day  member plus: 2000/day  (all: 20000/month)`);
   console.log(`  Set tier in ~/.qqdocs/config.yaml:  tier: member`);
   console.log(`  Upgrade: https://docs.qq.com/member`);
+}
+
+export async function cmdDocsUsageCalibrate(opts: { today?: number; tier?: string } = {}): Promise<void> {
+  const data = await loadUsage();
+  const day = todayKey();
+  const month = monthKey();
+  if (opts.today !== undefined) {
+    const delta = opts.today - (data.daily[day] ?? 0);
+    data.daily[day] = opts.today;
+    data.monthly[month] = Math.max(0, (data.monthly[month] ?? 0) + delta);
+  }
+  if (opts.tier !== undefined) {
+    if (!TIER_LIMITS[opts.tier]) throw new Error(`Unknown tier: ${opts.tier}. Use: free, member, plus`);
+    data.inferredTier = opts.tier as "free" | "member" | "plus";
+  }
+  // also re-infer from new count if not explicitly set
+  if (opts.today !== undefined && opts.tier === undefined) {
+    const inferred = inferTierFromCount(data.daily[day] ?? 0);
+    const current = data.inferredTier ?? "free";
+    if (TIER_RANK[inferred]! > TIER_RANK[current]!) data.inferredTier = inferred;
+  }
+  const dir = resolvePath(homedir(), ".qqdocs");
+  await mkdir(dir, { recursive: true });
+  await writeFile(usagePath(), JSON.stringify(data, null, 2));
+  console.log(`Calibrated: today=${data.daily[day] ?? 0}  month=${data.monthly[month] ?? 0}  inferredTier=${data.inferredTier ?? "free"}`);
 }

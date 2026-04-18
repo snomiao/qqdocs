@@ -31,6 +31,7 @@ import {
   cmdDocsSearch,
   cmdDocsSetPermission,
   cmdDocsUsage,
+  cmdDocsUsageCalibrate,
   cmdRaw,
   cmdSpaceCreate,
   cmdSpaceLink,
@@ -202,6 +203,10 @@ await yargs(hideBin(process.argv))
     .demandCommand(1))
   .command("sync", "Cache recent + root folder docs to ~/.qqdocs/cache.json", async () => cmdDocsSync())
   .command("usage", "Show API call usage and quota progress", y => y
+    .command("calibrate", "Manually set today's call count and/or tier", yy => yy
+      .option("today", { type: "number", describe: "Set today's call count" })
+      .option("tier", { type: "string", choices: ["free", "member", "plus"] as const, describe: "Set inferred tier" }),
+      async argv => cmdDocsUsageCalibrate({ today: argv.today, tier: argv.tier }))
     .option("tier", { type: "string", choices: ["free", "member", "plus"] as const, describe: "Override membership tier" }),
     async argv => cmdDocsUsage({ tier: argv.tier }))
   .command("create <title>", "Create a new document", y => y
