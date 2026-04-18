@@ -786,7 +786,7 @@ export async function cmdDocsDelete(
     const snippet = content.replace(/\s+/g, " ").trim().slice(0, 120);
     console.log(`  size:  ${chars.toLocaleString()} chars`);
     if (snippet) console.log(`  preview: ${snippet}${chars > 120 ? "…" : ""}`);
-    console.log(`\n⚠ This deletion is irreversible.`);
+    console.log(`\n⚠  Moves to recycle bin at docs.qq.com/desktop/trash — not restorable via CLI.`);
     console.log(`\nConfirm code: ${expectedConfirmCode}`);
     console.log(`Re-run: ${formatDeleteDocCommand(fileId, expectedConfirmCode)}`);
     return;
@@ -812,6 +812,7 @@ export async function cmdDocsDelete(
     confirm: providedConfirmCode,
     ...result,
   });
+  console.log(`\nMoved to recycle bin. Restore at: ${formatLink("docs.qq.com/desktop/trash", "https://docs.qq.com/desktop/trash")}`);
 }
 
 export async function cmdDocsInfo(fileIdOrUrl: string, opts: { json?: boolean } = {}) {
