@@ -11,6 +11,7 @@ import { readFile, stat, writeFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { basename, extname, resolve as resolvePath } from "path";
 import { env } from "./env";
+import { config } from "./config";
 
 const sleepMs = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -125,6 +126,7 @@ async function mcpRequest(url: string, method: string, params: Record<string, un
 
 async function mcpCall(url: string, tool: string, args: Record<string, unknown> = {}, opts: McpCallOptions = {}): Promise<any> {
   const result = await mcpRequest(url, "tools/call", { name: tool, arguments: args }, opts);
+  incrementUsage().catch(() => {});
   const j = result as any;
   if (j.structuredContent !== undefined) return j.structuredContent;
   const text = j.content?.[0]?.text ?? "{}";
@@ -1570,4 +1572,114 @@ function extractMcpErrorMessage(payload: unknown): string | null {
   const error = (payload as { error?: { data?: { message?: unknown }; message?: unknown } }).error;
   const message = error?.data?.message ?? error?.message;
   return message === undefined || message === null ? null : `${message}`;
+}
+
+// ── Usage tracking ─────────────────────────────────────────────────────────
+
+export type UsageData = {
+  daily: Record<string, number>;
+  monthly: Record<string, number>;
+};
+
+export type TierLimits = { daily: number; monthly: number; name: string };
+
+const TIER_LIMITS: Record<string, TierLimits> = {
+  free:   { daily:   100, monthly: 20000, name: "free" },
+  member: { daily:  1000, monthly: 20000, name: "member" },
+  plus:   { daily:  2000, monthly: 20000, name: "member plus" },
+};
+
+export function usagePath(): string {
+  return resolvePath(homedir(), ".qqdocs", "usage.json");
+}
+
+export async function loadUsage(): Promise<UsageData> {
+  try {
+    const raw = await readFile(usagePath(), "utf-8");
+    return JSON.parse(raw) as UsageData;
+  } catch {
+    return { daily: {}, monthly: {} };
+  }
+}
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function monthKey(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+export async function incrementUsage(): Promise<void> {
+  const data = await loadUsage();
+  const day = todayKey();
+  const month = monthKey();
+  data.daily[day] = (data.daily[day] ?? 0) + 1;
+  data.monthly[month] = (data.monthly[month] ?? 0) + 1;
+  // prune old days (keep last 7) and old months (keep last 3)
+  const dayKeys = Object.keys(data.daily).sort().slice(-7);
+  const monthKeys = Object.keys(data.monthly).sort().slice(-3);
+  data.daily = Object.fromEntries(dayKeys.map(k => [k, data.daily[k]]));
+  data.monthly = Object.fromEntries(monthKeys.map(k => [k, data.monthly[k]]));
+  const dir = resolvePath(homedir(), ".qqdocs");
+  await mkdir(dir, { recursive: true });
+  await writeFile(usagePath(), JSON.stringify(data, null, 2));
+}
+
+function progressBar(used: number, total: number, width = 20): string {
+  const pct = Math.min(1, used / total);
+  const filled = Math.round(pct * width);
+  const bar = "█".repeat(filled) + "░".repeat(width - filled);
+  return `[${bar}]`;
+}
+
+function usageColor(pct: number): string {
+  if (!process.stdout.isTTY) return "";
+  if (pct >= 0.95) return "\x1b[31m"; // red
+  if (pct >= 0.80) return "\x1b[33m"; // yellow
+  return "\x1b[32m";                  // green
+}
+
+const RESET = process.stdout.isTTY ? "\x1b[0m" : "";
+
+export function formatUsageLines(data: UsageData, limits: TierLimits): string[] {
+  const dayUsed = data.daily[todayKey()] ?? 0;
+  const monthUsed = data.monthly[monthKey()] ?? 0;
+  const dayPct = dayUsed / limits.daily;
+  const monthPct = monthUsed / limits.monthly;
+  const dayPctStr = `${Math.round(dayPct * 100)}%`;
+  const monthPctStr = `${Math.round(monthPct * 100)}%`;
+  return [
+    `  Today  ${usageColor(dayPct)}${progressBar(dayUsed, limits.daily)}  ${dayUsed}/${limits.daily}  ${dayPctStr}${RESET}  (${limits.name} tier)`,
+    `  Month  ${usageColor(monthPct)}${progressBar(monthUsed, limits.monthly)}  ${monthUsed}/${limits.monthly}  ${monthPctStr}${RESET}`,
+  ];
+}
+
+/** Print usage warning if ≥80% of daily quota used. Call after commands. */
+export async function printUsageWarningIfNeeded(tier?: string): Promise<void> {
+  try {
+    const data = await loadUsage();
+    const limits = TIER_LIMITS[tier ?? "free"] ?? TIER_LIMITS.free!;
+    const dayUsed = data.daily[todayKey()] ?? 0;
+    const pct = dayUsed / limits.daily;
+    if (pct < 0.8) return;
+    const color = pct >= 0.95 ? "\x1b[31m" : "\x1b[33m";
+    const reset = process.stderr.isTTY ? "\x1b[0m" : "";
+    process.stderr.write(`\n${color}⚠ API quota: ${dayUsed}/${limits.daily} calls today (${Math.round(pct * 100)}%)${reset}\n`);
+    if (pct >= 0.95) process.stderr.write(`  Upgrade at https://docs.qq.com/member\n`);
+  } catch {
+    // non-fatal
+  }
+}
+
+export async function cmdDocsUsage(opts: { tier?: string } = {}): Promise<void> {
+  const data = await loadUsage();
+  const tierKey = opts.tier ?? (config as any).tier ?? "free";
+  const limits = TIER_LIMITS[tierKey] ?? TIER_LIMITS.free!;
+  console.log("API usage (Tencent Docs MCP):");
+  for (const line of formatUsageLines(data, limits)) console.log(line);
+  console.log();
+  console.log(`  Tier limits — free: 100/day  member: 1000/day  member plus: 2000/day  (all: 20000/month)`);
+  console.log(`  Set tier in ~/.qqdocs/config.yaml:  tier: member`);
+  console.log(`  Upgrade: https://docs.qq.com/member`);
 }

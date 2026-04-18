@@ -16,6 +16,8 @@ export type QqdocsConfig = {
   defaultPerm?: "private" | "link-read" | "link-edit";
   defaultDocType?: string;
   defaultFormat?: "mdx" | "markdown";
+  /** Membership tier: free (100/day), member (1000/day), plus (2000/day). Default: free. */
+  tier?: "free" | "member" | "plus";
   [key: string]: unknown;
 };
 

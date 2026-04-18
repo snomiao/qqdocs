@@ -82,6 +82,7 @@ qqdocs create <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsh
                       [--perm private|link-read|link-edit]
 
 qqdocs sync                                          # cache recent + root docs to ~/.qqdocs/cache.json
+qqdocs usage [--tier free|member|plus]               # show API call quota progress bars
 qqdocs completion                                    # prints a shell completion script
 ```
 

@@ -30,6 +30,7 @@ import {
   cmdDocsRename,
   cmdDocsSearch,
   cmdDocsSetPermission,
+  cmdDocsUsage,
   cmdRaw,
   cmdSpaceCreate,
   cmdSpaceLink,
@@ -40,7 +41,9 @@ import {
   cmdSpaceMove,
   cmdSpaceRm,
   cmdTools,
+  printUsageWarningIfNeeded,
 } from "../src/index";
+import { config } from "../src/config";
 
 await yargs(hideBin(process.argv))
   .scriptName(resolveScriptName())
@@ -198,6 +201,9 @@ await yargs(hideBin(process.argv))
       async argv => cmdCanvasEdit(argv.ref, argv.action as CanvasEditActionInput, { id: argv.id, content: argv.content }))
     .demandCommand(1))
   .command("sync", "Cache recent + root folder docs to ~/.qqdocs/cache.json", async () => cmdDocsSync())
+  .command("usage", "Show API call usage and quota progress", y => y
+    .option("tier", { type: "string", choices: ["free", "member", "plus"] as const, describe: "Override membership tier" }),
+    async argv => cmdDocsUsage({ tier: argv.tier }))
   .command("create <title>", "Create a new document", y => y
     .positional("title", { type: "string", demandOption: true })
     .option("type", {
@@ -213,10 +219,12 @@ await yargs(hideBin(process.argv))
       content: argv.content,
       perm: argv.perm,
     }))
-  .demandCommand(1, "Specify a subcommand: tools, raw, ls, search, read, rename, open, delete, info, import, perm, space, canvas, sync, create")
+  .demandCommand(1, "Specify a subcommand: tools, raw, ls, search, read, rename, open, delete, info, import, perm, space, canvas, sync, usage, create")
   .completion("completion", "Generate shell completion script (source it in your shell rc)")
   .strict()
   .help()
   .alias("help", "h")
   .showHelpOnFail(true)
   .parse();
+
+await printUsageWarningIfNeeded(config.tier);
