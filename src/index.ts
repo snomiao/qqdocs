@@ -858,19 +858,31 @@ export async function cmdDocsDelete(
     return;
   }
   const fileId = await resolveFileId(fileIdOrUrl);
-  const [info, contentResult] = await Promise.allSettled([
-    getDocInfo(fileId),
-    readDoc(fileId),
-  ]);
-  if (contentResult.status === "rejected") {
-    const message = contentResult.reason instanceof Error ? contentResult.reason.message : String(contentResult.reason);
-    console.log(`Unable to read document content for confirmation: ${message}`);
-    return;
+
+  let content: string;
+  let docInfo: any;
+
+  const cached = opts.confirm !== undefined ? await getCachedDoc(fileId) : null;
+  if (cached) {
+    content = cached.content;
+    docInfo = cached.info;
+  } else {
+    const [infoResult, contentResult] = await Promise.allSettled([
+      getDocInfo(fileId),
+      readDoc(fileId),
+    ]);
+    if (contentResult.status === "rejected") {
+      const message = contentResult.reason instanceof Error ? contentResult.reason.message : String(contentResult.reason);
+      console.log(`Unable to read document content for confirmation: ${message}`);
+      return;
+    }
+    content = contentResult.value;
+    docInfo = infoResult.status === "fulfilled" ? infoResult.value : null;
+    await setCachedDoc(fileId, content, docInfo).catch(() => {});
   }
-  const content = contentResult.value;
+
   const expectedConfirmCode = createDeleteConfirmCode(content);
   if (opts.confirm === undefined) {
-    const docInfo = info.status === "fulfilled" ? info.value : null;
     const title = (docInfo?.title ?? docInfo?.file_name) as string | undefined;
     const url = (docInfo?.url ?? docInfo?.file_url) as string | undefined;
     if (title) console.log(`  title: ${title}`);
@@ -1471,6 +1483,46 @@ export type SyncCache = { syncedAt: number; entries: SyncCacheEntry[] };
 
 export function syncCachePath(): string {
   return resolvePath(homedir(), ".qqdocs", "cache.json");
+}
+
+// ── Doc content cache ──────────────────────────────────────────────────────
+
+export type DocCacheEntry = { content: string; info: any; cachedAt: number };
+export type DocCache = Record<string, DocCacheEntry>;
+
+const DOC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes — safe for delete confirm flow
+
+export function docCachePath(): string {
+  return resolvePath(homedir(), ".qqdocs", "doc-cache.json");
+}
+
+export async function loadDocCache(): Promise<DocCache> {
+  try {
+    const raw = await readFile(docCachePath(), "utf-8");
+    return JSON.parse(raw) as DocCache;
+  } catch {
+    return {};
+  }
+}
+
+export async function getCachedDoc(fileId: string): Promise<DocCacheEntry | null> {
+  const cache = await loadDocCache();
+  const entry = cache[fileId];
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > DOC_CACHE_TTL_MS) return null;
+  return entry;
+}
+
+export async function setCachedDoc(fileId: string, content: string, info: any): Promise<void> {
+  const cache = await loadDocCache();
+  // prune stale entries
+  for (const [id, entry] of Object.entries(cache)) {
+    if (Date.now() - entry.cachedAt > DOC_CACHE_TTL_MS) delete cache[id];
+  }
+  cache[fileId] = { content, info, cachedAt: Date.now() };
+  const dir = resolvePath(homedir(), ".qqdocs");
+  await mkdir(dir, { recursive: true });
+  await writeFile(docCachePath(), JSON.stringify(cache, null, 2));
 }
 
 export async function loadSyncCache(): Promise<SyncCache> {
