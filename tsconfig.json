@@ -9,8 +9,7 @@
     "esModuleInterop": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": ["bun"],
-    "jsx": "react-jsx"
+    "types": ["bun"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "bin/**/*.ts"]
+  "include": ["src/**/*.ts", "bin/**/*.ts"]
 }

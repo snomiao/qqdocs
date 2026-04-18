@@ -692,7 +692,7 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
 
   if (isTTY) {
     // SWR: print cache immediately, fetch fresh, cursor-up and rewrite in place (no screen clear)
-    const FRESH_TTL_MS = 60_000;
+    const FRESH_TTL_MS = 300_000;
     const { syncedAt, entries: cachedEntries } = await loadSyncCache();
     const isFresh = Date.now() - syncedAt < FRESH_TTL_MS;
     const cached = cachedEntries.map(e => toRow(e.file_id, e.title, e.url, !isFresh, { mtime: e.mtime, owner: e.owner }));
@@ -739,14 +739,14 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
       if (opts.folder !== undefined) {
         const folderId = await resolveFolderId(opts.folder ?? "");
         const { list } = await listFolderContents(folderId);
-        const infoMap = await fetchInfoMap(list.filter(i => !i.is_folder).map(i => i.id));
+        const infoMap = opts.dates ? await fetchInfoMap(list.filter(i => !i.is_folder).map(i => i.id)) : new Map();
         freshRows = list.map(i => {
           const url = i.url.startsWith("//") ? `https:${i.url}` : i.url;
           return toRow(i.id, i.title, url, false, infoMap.get(i.id));
         });
       } else {
         const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
-        const infoMap = await fetchInfoMap(files.map(f => f.file_id));
+        const infoMap = opts.dates ? await fetchInfoMap(files.map(f => f.file_id)) : new Map();
         freshRows = files.map(f => toRow(f.file_id, f.file_name, f.file_url, false, infoMap.get(f.file_id)));
       }
     } catch (err) {
