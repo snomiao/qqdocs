@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/snomiao/qqdocs/compare/v1.13.0...v1.14.0) (2026-04-18)
+
+
+### Features
+
+* show size and content preview on delete dry-run ([d01c5fe](https://github.com/snomiao/qqdocs/commit/d01c5fed474fc4a58e87d72d253accb8353aaa00))
+
 # [1.13.0](https://github.com/snomiao/qqdocs/compare/v1.12.0...v1.13.0) (2026-04-18)
 
 
