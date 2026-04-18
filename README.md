@@ -47,6 +47,7 @@ qqdocs tools [pattern]                                # list live MCP tools
 qqdocs raw <tool> --json '{"file_id":"..."}'          # raw tool call
 
 qqdocs ls [--json]                                   # recent documents
+qqdocs ls --folder [<folder-id>]                     # root or folder contents
 qqdocs search <query> [--json]                       # keyword search
 qqdocs read <file-id-or-url-or-name>                 # read document content
 qqdocs rename <file-id-or-url-or-name> <new-title>   # rename (alias: mv)
@@ -136,6 +137,8 @@ import {
   callTool,
   copyDoc,
   createDoc,
+  getFolderMeta,
+  listFolderContents,
   createSpace,
   createSpaceDocNode,
   editCanvas,

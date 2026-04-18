@@ -213,6 +213,21 @@ export async function listRecent(count = 20, page = 1): Promise<DocFile[]> {
   return r.files ?? r.file ?? [];
 }
 
+export type FolderItem = { id: string; is_folder: boolean; title: string; url: string };
+
+/** List folder contents. Pass no folderId for the root. */
+export async function listFolderContents(folderId?: string): Promise<{ list: FolderItem[]; finish: boolean }> {
+  const args = folderId ? { folder_id: folderId } : {};
+  const r = await docs("manage.folder_list", args);
+  return { list: r.list ?? [], finish: r.finish ?? true };
+}
+
+/** Get folder metadata. */
+export async function getFolderMeta(folderId: string): Promise<{ id: string; parent_id: string; title: string }> {
+  const r = await docs("manage.query_folder_meta", { folder_id: folderId });
+  return r.folder;
+}
+
 /** Search documents by keyword. */
 export async function searchDocs(query: string): Promise<DocFile[]> {
   const r = await docs("manage.search_file", { search_key: query });
@@ -596,7 +611,20 @@ export function docTypeFromUrl(url: string): string {
   return "doc";
 }
 
-export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean } = {}) {
+export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean; folder?: string } = {}) {
+  if (opts.folder !== undefined) {
+    const folderId = opts.folder || undefined;
+    const { list, finish } = await listFolderContents(folderId);
+    if (opts.json) { console.log(JSON.stringify(list, null, 2)); return; }
+    if (!list.length) { console.log("(empty folder)"); return; }
+    for (const item of list) {
+      const kind = item.is_folder ? "folder    " : docTypeFromUrl(item.url).padEnd(10);
+      const url = item.url.startsWith("//") ? `https:${item.url}` : item.url;
+      console.log(`  [${kind}] ${item.title}  ${url}`);
+    }
+    if (!finish) console.log("  … (more items exist)");
+    return;
+  }
   const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
   if (opts.json) { console.log(JSON.stringify(files, null, 2)); return; }
   if (!files.length) { console.log("(no recent documents)"); return; }
