@@ -764,23 +764,28 @@ export async function cmdDocsDelete(
     return;
   }
   const fileId = await resolveFileId(fileIdOrUrl);
-  const [info, confirmCodeResult] = await Promise.allSettled([
+  const [info, contentResult] = await Promise.allSettled([
     getDocInfo(fileId),
-    getDocDeleteConfirmCode(fileId),
+    readDoc(fileId),
   ]);
-  if (confirmCodeResult.status === "rejected") {
-    const message = confirmCodeResult.reason instanceof Error ? confirmCodeResult.reason.message : String(confirmCodeResult.reason);
-    console.log(`Unable to derive delete confirmation code from current document content: ${message}`);
+  if (contentResult.status === "rejected") {
+    const message = contentResult.reason instanceof Error ? contentResult.reason.message : String(contentResult.reason);
+    console.log(`Unable to read document content for confirmation: ${message}`);
     return;
   }
-  const expectedConfirmCode = confirmCodeResult.value;
+  const content = contentResult.value;
+  const expectedConfirmCode = createDeleteConfirmCode(content);
   if (opts.confirm === undefined) {
     const docInfo = info.status === "fulfilled" ? info.value : null;
     const title = (docInfo?.title ?? docInfo?.file_name) as string | undefined;
     const url = (docInfo?.url ?? docInfo?.file_url) as string | undefined;
     if (title) console.log(`  title: ${title}`);
-    if (url) console.log(`  url:   ${url}`);
+    if (url)   console.log(`  url:   ${url}`);
     console.log(`  id:    ${fileId}`);
+    const chars = content.length;
+    const snippet = content.replace(/\s+/g, " ").trim().slice(0, 120);
+    console.log(`  size:  ${chars.toLocaleString()} chars`);
+    if (snippet) console.log(`  preview: ${snippet}${chars > 120 ? "…" : ""}`);
     console.log(`\n⚠ This deletion is irreversible.`);
     console.log(`\nConfirm code: ${expectedConfirmCode}`);
     console.log(`Re-run: ${formatDeleteDocCommand(fileId, expectedConfirmCode)}`);
