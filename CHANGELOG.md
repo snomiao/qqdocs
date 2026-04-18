@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/snomiao/qqdocs/compare/v1.14.0...v1.15.0) (2026-04-18)
+
+
+### Features
+
+* clarify delete moves to recycle bin, show trash URL after delete ([60deafd](https://github.com/snomiao/qqdocs/commit/60deafde206a399c3d522622ecbf91da5603fd4b))
+
 # [1.14.0](https://github.com/snomiao/qqdocs/compare/v1.13.0...v1.14.0) (2026-04-18)
 
 

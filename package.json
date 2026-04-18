@@ -1,6 +1,6 @@
 {
   "name": "qqdocs",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "description": "Tencent Docs (docs.qq.com) CLI and library — thin MCP JSON-RPC client.",
   "keywords": [
     "tencent-docs",
