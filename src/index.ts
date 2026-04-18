@@ -1684,7 +1684,7 @@ export async function printUsageWarningIfNeeded(tier?: string): Promise<void> {
     const color = pct >= 0.95 ? "\x1b[31m" : "\x1b[33m";
     const reset = process.stderr.isTTY ? "\x1b[0m" : "";
     process.stderr.write(`\n${color}⚠ API quota: ${dayUsed}/${limits.daily} calls today (${Math.round(pct * 100)}%)${reset}\n`);
-    if (pct >= 0.95) process.stderr.write(`  Upgrade at https://docs.qq.com/member\n`);
+    if (pct >= 0.95) process.stderr.write(`  Upgrade at https://docs.qq.com/vip\n`);
   } catch {
     // non-fatal
   }
@@ -1702,7 +1702,7 @@ export async function cmdDocsUsage(opts: { tier?: string } = {}): Promise<void> 
   console.log();
   console.log(`  Tier limits — free: 100/day  member: 1000/day  member plus: 2000/day  (all: 20000/month)`);
   console.log(`  Set tier in ~/.qqdocs/config.yaml:  tier: member`);
-  console.log(`  Upgrade: https://docs.qq.com/member`);
+  console.log(`  Upgrade: https://docs.qq.com/vip`);
 }
 
 export async function cmdDocsUsageCalibrate(opts: { today?: number; month?: number; tier?: string } = {}): Promise<void> {
