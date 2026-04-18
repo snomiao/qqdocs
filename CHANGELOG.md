@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/snomiao/qqdocs/compare/v1.11.0...v1.12.0) (2026-04-18)
+
+
+### Features
+
+* path-style ls, richer epilog, --sha alias, sync command ([4486bea](https://github.com/snomiao/qqdocs/commit/4486bea3518e00d2eaa0baa94e56d7656ee9a134))
+
 # [1.11.0](https://github.com/snomiao/qqdocs/compare/v1.10.0...v1.11.0) (2026-04-18)
 
 
