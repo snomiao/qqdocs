@@ -764,16 +764,25 @@ export async function cmdDocsDelete(
     return;
   }
   const fileId = await resolveFileId(fileIdOrUrl);
-  let expectedConfirmCode = "";
-  try {
-    expectedConfirmCode = await getDocDeleteConfirmCode(fileId);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  const [info, confirmCodeResult] = await Promise.allSettled([
+    getDocInfo(fileId),
+    getDocDeleteConfirmCode(fileId),
+  ]);
+  if (confirmCodeResult.status === "rejected") {
+    const message = confirmCodeResult.reason instanceof Error ? confirmCodeResult.reason.message : String(confirmCodeResult.reason);
     console.log(`Unable to derive delete confirmation code from current document content: ${message}`);
     return;
   }
+  const expectedConfirmCode = confirmCodeResult.value;
   if (opts.confirm === undefined) {
-    console.log(`Confirm code: ${expectedConfirmCode}`);
+    const docInfo = info.status === "fulfilled" ? info.value : null;
+    const title = (docInfo?.title ?? docInfo?.file_name) as string | undefined;
+    const url = (docInfo?.url ?? docInfo?.file_url) as string | undefined;
+    if (title) console.log(`  title: ${title}`);
+    if (url) console.log(`  url:   ${url}`);
+    console.log(`  id:    ${fileId}`);
+    console.log(`\n⚠ This deletion is irreversible.`);
+    console.log(`\nConfirm code: ${expectedConfirmCode}`);
     console.log(`Re-run: ${formatDeleteDocCommand(fileId, expectedConfirmCode)}`);
     return;
   }
