@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/snomiao/qqdocs/compare/v1.7.0...v1.8.0) (2026-04-18)
+
+
+### Features
+
+* add folder listing to `qqdocs ls --folder [id]` ([d70de63](https://github.com/snomiao/qqdocs/commit/d70de63636be8ce86570db89351f59fbce1eb460))
+
 # [1.7.0](https://github.com/snomiao/qqdocs/compare/v1.6.0...v1.7.0) (2026-04-17)
 
 
