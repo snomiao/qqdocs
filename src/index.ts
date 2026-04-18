@@ -692,7 +692,11 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
 
   if (isTTY) {
     // SWR: print cache immediately, fetch fresh, cursor-up and rewrite in place (no screen clear)
-    const cached = (await loadSyncCache()).map(e => toRow(e.file_id, e.title, e.url, true));
+    const FRESH_TTL_MS = 60_000;
+    const { syncedAt, entries: cachedEntries } = await loadSyncCache();
+    const isFresh = Date.now() - syncedAt < FRESH_TTL_MS;
+    const cached = cachedEntries.map(e => toRow(e.file_id, e.title, e.url, !isFresh, { mtime: e.mtime, owner: e.owner }));
+
     const printRow = (r: ReturnType<typeof toRow>) => {
       const parts = [`  ${formatLink(r.title, r.url)} ${dim(r.ext)}`];
       if (r.owner) parts.push(dim(r.owner));
@@ -700,44 +704,58 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
       return parts.join("  ");
     };
 
-    // Phase 1: print stale rows
+    // Phase 1: print cached rows
     const staleLines = cached.length
-      ? cached.map(r => dim(printRow(r)))
+      ? cached.map(r => r.stale ? dim(printRow(r)) : printRow(r))
       : [dim("  (no cache — run qqdocs sync)")];
     for (const l of staleLines) process.stdout.write(l + "\n");
+
+    // Phase 2: skip fetch if cache is still fresh
+    if (isFresh) {
+      process.stdout.write(`${dim("  ✓ up to date (cached)")}\n`);
+      return;
+    }
+
     process.stdout.write(dim("  fetching…") + "\n");
     const printedLines = staleLines.length + 1;
 
-    // Phase 2: fetch fresh list + file info (dates/owner) in parallel
-    let freshRows: ReturnType<typeof toRow>[];
+    // fetch fresh list + file info (dates/owner) in parallel; ignore rate-limit errors per item
     const fetchInfoMap = async (ids: string[]) => {
-      const settled = await Promise.allSettled(ids.map(id => getDocInfo(id)));
+      const settled = await Promise.allSettled(ids.map(id => getDocInfo(id).catch(() => null)));
       const map = new Map<string, { mtime?: number; owner?: string }>();
       for (let i = 0; i < ids.length; i++) {
         const r = settled[i];
-        if (r.status === "fulfilled" && r.value) {
-          map.set(ids[i], {
-            mtime: r.value.last_modify_time as number | undefined,
-            owner: r.value.owner_name as string | undefined,
-          });
-        }
+        const val = r.status === "fulfilled" ? r.value : null;
+        if (val) map.set(ids[i], {
+          mtime: val.last_modify_time as number | undefined,
+          owner: val.owner_name as string | undefined,
+        });
       }
       return map;
     };
 
-    if (opts.folder !== undefined) {
-      const folderId = await resolveFolderId(opts.folder ?? "");
-      const { list } = await listFolderContents(folderId);
-      const docIds = list.filter(i => !i.is_folder).map(i => i.id);
-      const infoMap = await fetchInfoMap(docIds);
-      freshRows = list.map(i => {
-        const url = i.url.startsWith("//") ? `https:${i.url}` : i.url;
-        return toRow(i.id, i.title, url, false, infoMap.get(i.id));
-      });
-    } else {
-      const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
-      const infoMap = await fetchInfoMap(files.map(f => f.file_id));
-      freshRows = files.map(f => toRow(f.file_id, f.file_name, f.file_url, false, infoMap.get(f.file_id)));
+    let freshRows: ReturnType<typeof toRow>[];
+    try {
+      if (opts.folder !== undefined) {
+        const folderId = await resolveFolderId(opts.folder ?? "");
+        const { list } = await listFolderContents(folderId);
+        const infoMap = await fetchInfoMap(list.filter(i => !i.is_folder).map(i => i.id));
+        freshRows = list.map(i => {
+          const url = i.url.startsWith("//") ? `https:${i.url}` : i.url;
+          return toRow(i.id, i.title, url, false, infoMap.get(i.id));
+        });
+      } else {
+        const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
+        const infoMap = await fetchInfoMap(files.map(f => f.file_id));
+        freshRows = files.map(f => toRow(f.file_id, f.file_name, f.file_url, false, infoMap.get(f.file_id)));
+      }
+    } catch (err) {
+      // network/rate-limit on main list fetch — show stale rows with error note
+      process.stdout.write(`\x1b[${printedLines}A`);
+      for (const r of cached) process.stdout.write(`\x1b[2K${printRow(r)}\n`);
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stdout.write(`\x1b[J${dim(`  ⚠ fetch failed: ${msg.slice(0, 80)}`)}\n`);
+      return;
     }
 
     // Phase 3: cursor up, rewrite in place, erase leftover stale lines
@@ -1446,18 +1464,21 @@ function printObject(obj: Record<string, unknown>) {
   }
 }
 
-export type SyncCacheEntry = { file_id: string; title: string; url: string; mtime?: number };
+export type SyncCacheEntry = { file_id: string; title: string; url: string; mtime?: number; owner?: string };
+export type SyncCache = { syncedAt: number; entries: SyncCacheEntry[] };
 
 export function syncCachePath(): string {
   return resolvePath(homedir(), ".qqdocs", "cache.json");
 }
 
-export async function loadSyncCache(): Promise<SyncCacheEntry[]> {
+export async function loadSyncCache(): Promise<SyncCache> {
   try {
     const raw = await readFile(syncCachePath(), "utf-8");
-    return JSON.parse(raw) as SyncCacheEntry[];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return { syncedAt: 0, entries: parsed };
+    return parsed as SyncCache;
   } catch {
-    return [];
+    return { syncedAt: 0, entries: [] };
   }
 }
 
@@ -1480,9 +1501,10 @@ export async function syncDocs(): Promise<SyncCacheEntry[]> {
     const url = item.url.startsWith("//") ? `https:${item.url}` : item.url;
     entries.push({ file_id: item.id, title: item.title, url });
   }
+  const cache: SyncCache = { syncedAt: Date.now(), entries };
   const dir = resolvePath(homedir(), ".qqdocs");
   await mkdir(dir, { recursive: true });
-  await writeFile(syncCachePath(), JSON.stringify(entries, null, 2));
+  await writeFile(syncCachePath(), JSON.stringify(cache, null, 2));
   return entries;
 }
 
