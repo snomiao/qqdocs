@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/snomiao/qqdocs/compare/v1.15.0...v1.16.0) (2026-04-18)
+
+
+### Features
+
+* SWR live update for qqdocs ls in TTY using React Ink ([fba1324](https://github.com/snomiao/qqdocs/commit/fba1324d969a74a7866f54d450f1979c5cc8495f))
+
 # [1.15.0](https://github.com/snomiao/qqdocs/compare/v1.14.0...v1.15.0) (2026-04-18)
 
 
