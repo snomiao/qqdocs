@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/snomiao/qqdocs/compare/v1.21.1...v1.22.0) (2026-04-18)
+
+
+### Features
+
+* cache doc content at ~/.qqdocs/doc-cache.json ([21a6f83](https://github.com/snomiao/qqdocs/commit/21a6f8378fb2abbf2491225bc418b284006e136d))
+
 ## [1.21.1](https://github.com/snomiao/qqdocs/compare/v1.21.0...v1.21.1) (2026-04-18)
 
 
