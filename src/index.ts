@@ -623,16 +623,39 @@ export function docTypeExt(type: string): string {
 
 const dim = (s: string) => isTTY ? `\x1b[2m${s}\x1b[0m` : s;
 
-export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean; folder?: string } = {}) {
+export function formatRelativeDate(tsMs: number | string, now = Date.now()): string {
+  const ms = typeof tsMs === "string" ? Number(tsMs) : tsMs;
+  const diff = now - ms;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+async function fetchDates(ids: string[]): Promise<Map<string, string>> {
+  const results = await Promise.allSettled(ids.map(id => getDocInfo(id)));
+  const map = new Map<string, string>();
+  for (let i = 0; i < ids.length; i++) {
+    const r = results[i];
+    if (r.status === "fulfilled" && r.value?.last_modify_time)
+      map.set(ids[i], formatRelativeDate(r.value.last_modify_time as number));
+  }
+  return map;
+}
+
+export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean; folder?: string; dates?: boolean } = {}) {
   if (opts.folder !== undefined) {
     const folderId = (!opts.folder || opts.folder === "root") ? undefined : opts.folder;
     const { list, finish } = await listFolderContents(folderId);
     if (opts.json) { console.log(JSON.stringify(list, null, 2)); return; }
     if (!list.length) { console.log("(empty folder)"); return; }
+    const dates = opts.dates ? await fetchDates(list.filter(i => !i.is_folder).map(i => i.id)) : new Map();
     for (const item of list) {
       const type = item.is_folder ? "folder" : docTypeFromUrl(item.url);
       const url = item.url.startsWith("//") ? `https:${item.url}` : item.url;
-      console.log(`  ${formatLink(item.title, url)} ${dim(docTypeExt(type))}`);
+      const date = dates.get(item.id);
+      console.log(`  ${formatLink(item.title, url)} ${dim(docTypeExt(type))}${date ? `  ${dim(date)}` : ""}`);
     }
     if (!finish) console.log("  … (more items exist)");
     return;
@@ -640,9 +663,11 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
   const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
   if (opts.json) { console.log(JSON.stringify(files, null, 2)); return; }
   if (!files.length) { console.log("(no recent documents)"); return; }
+  const dates = opts.dates ? await fetchDates(files.map(f => f.file_id)) : new Map();
   for (const f of files) {
     const type = docTypeFromUrl(f.file_url);
-    console.log(`  ${formatLink(f.file_name, f.file_url)} ${dim(docTypeExt(type))}`);
+    const date = dates.get(f.file_id);
+    console.log(`  ${formatLink(f.file_name, f.file_url)} ${dim(docTypeExt(type))}${date ? `  ${dim(date)}` : ""}`);
   }
 }
 

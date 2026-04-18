@@ -55,8 +55,9 @@ await yargs(hideBin(process.argv))
     .positional("folder", { type: "string", describe: "Folder ID (omit for recent docs, pass 'root' for root folder)" })
     .option("count", { type: "number", default: 20, alias: "n" })
     .option("page", { type: "number", default: 1, alias: "p" })
-    .option("json", { type: "boolean", default: false }),
-    async argv => cmdDocsLs({ count: argv.count, page: argv.page, json: argv.json, folder: argv.folder }))
+    .option("json", { type: "boolean", default: false })
+    .option("dates", { type: "boolean", default: false, alias: "d", describe: "Fetch and show last-modified dates (extra API calls)" }),
+    async argv => cmdDocsLs({ count: argv.count, page: argv.page, json: argv.json, folder: argv.folder, dates: argv.dates }))
   .command("search <query>", "Search documents by keyword", y => y
     .positional("query", { type: "string", demandOption: true })
     .option("json", { type: "boolean", default: false }),
