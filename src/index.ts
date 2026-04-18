@@ -611,6 +611,18 @@ export function docTypeFromUrl(url: string): string {
   return "doc";
 }
 
+const DOC_TYPE_EXT: Record<string, string> = {
+  doc: ".docx", sheet: ".xlsx", slide: ".pptx", pdf: ".pdf",
+  mind: ".mind", flowchart: ".flow", form: ".form",
+  smartsheet: ".ssheet", folder: "/",
+};
+
+export function docTypeExt(type: string): string {
+  return DOC_TYPE_EXT[type] ?? `.${type}`;
+}
+
+const dim = (s: string) => isTTY ? `\x1b[2m${s}\x1b[0m` : s;
+
 export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean; folder?: string } = {}) {
   if (opts.folder !== undefined) {
     const folderId = (!opts.folder || opts.folder === "root") ? undefined : opts.folder;
@@ -618,9 +630,9 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
     if (opts.json) { console.log(JSON.stringify(list, null, 2)); return; }
     if (!list.length) { console.log("(empty folder)"); return; }
     for (const item of list) {
-      const kind = item.is_folder ? "folder    " : docTypeFromUrl(item.url).padEnd(10);
+      const type = item.is_folder ? "folder" : docTypeFromUrl(item.url);
       const url = item.url.startsWith("//") ? `https:${item.url}` : item.url;
-      console.log(`  [${kind}] ${formatLink(item.title, url)}`);
+      console.log(`  ${formatLink(item.title, url)} ${dim(docTypeExt(type))}`);
     }
     if (!finish) console.log("  … (more items exist)");
     return;
@@ -630,7 +642,7 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
   if (!files.length) { console.log("(no recent documents)"); return; }
   for (const f of files) {
     const type = docTypeFromUrl(f.file_url);
-    console.log(`  [${type.padEnd(10)}] ${formatLink(f.file_name, f.file_url)}`);
+    console.log(`  ${formatLink(f.file_name, f.file_url)} ${dim(docTypeExt(type))}`);
   }
 }
 
