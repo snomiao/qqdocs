@@ -671,9 +671,9 @@ async function fetchDates(ids: string[]): Promise<Map<string, string>> {
   return map;
 }
 
-function toRow(id: string, title: string, url: string, stale: boolean) {
+function toRow(id: string, title: string, url: string, stale: boolean, info?: { mtime?: number; owner?: string }) {
   const ext = docTypeExt(docTypeFromUrl(url));
-  return { id, title, url, ext, stale };
+  return { id, title, url, ext, stale, mtime: info?.mtime, owner: info?.owner };
 }
 
 export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean; folder?: string; dates?: boolean } = {}) {
@@ -691,27 +691,61 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
   }
 
   if (isTTY) {
-    // SWR mode: render cache immediately, update with fresh data
-    const { render } = await import("ink");
-    const { LsView } = await import("./ls-view");
-    const React = (await import("react")).default;
-
+    // SWR: print cache immediately, fetch fresh, cursor-up and rewrite in place (no screen clear)
     const cached = (await loadSyncCache()).map(e => toRow(e.file_id, e.title, e.url, true));
-
-    const fetchFresh = async () => {
-      if (opts.folder !== undefined) {
-        const folderId = await resolveFolderId(opts.folder ?? "");
-        const { list } = await listFolderContents(folderId);
-        return list
-          .filter(i => !i.is_folder)
-          .map(i => toRow(i.id, i.title, i.url.startsWith("//") ? `https:${i.url}` : i.url, false));
-      }
-      const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
-      return files.map(f => toRow(f.file_id, f.file_name, f.file_url, false));
+    const printRow = (r: ReturnType<typeof toRow>) => {
+      const parts = [`  ${formatLink(r.title, r.url)} ${dim(r.ext)}`];
+      if (r.owner) parts.push(dim(r.owner));
+      if (r.mtime) parts.push(dim(formatRelativeDate(r.mtime)));
+      return parts.join("  ");
     };
 
-    const { waitUntilExit } = render(React.createElement(LsView, { fetchFresh, cache: cached }));
-    await waitUntilExit();
+    // Phase 1: print stale rows
+    const staleLines = cached.length
+      ? cached.map(r => dim(printRow(r)))
+      : [dim("  (no cache — run qqdocs sync)")];
+    for (const l of staleLines) process.stdout.write(l + "\n");
+    process.stdout.write(dim("  fetching…") + "\n");
+    const printedLines = staleLines.length + 1;
+
+    // Phase 2: fetch fresh list + file info (dates/owner) in parallel
+    let freshRows: ReturnType<typeof toRow>[];
+    const fetchInfoMap = async (ids: string[]) => {
+      const settled = await Promise.allSettled(ids.map(id => getDocInfo(id)));
+      const map = new Map<string, { mtime?: number; owner?: string }>();
+      for (let i = 0; i < ids.length; i++) {
+        const r = settled[i];
+        if (r.status === "fulfilled" && r.value) {
+          map.set(ids[i], {
+            mtime: r.value.last_modify_time as number | undefined,
+            owner: r.value.owner_name as string | undefined,
+          });
+        }
+      }
+      return map;
+    };
+
+    if (opts.folder !== undefined) {
+      const folderId = await resolveFolderId(opts.folder ?? "");
+      const { list } = await listFolderContents(folderId);
+      const docIds = list.filter(i => !i.is_folder).map(i => i.id);
+      const infoMap = await fetchInfoMap(docIds);
+      freshRows = list.map(i => {
+        const url = i.url.startsWith("//") ? `https:${i.url}` : i.url;
+        return toRow(i.id, i.title, url, false, infoMap.get(i.id));
+      });
+    } else {
+      const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
+      const infoMap = await fetchInfoMap(files.map(f => f.file_id));
+      freshRows = files.map(f => toRow(f.file_id, f.file_name, f.file_url, false, infoMap.get(f.file_id)));
+    }
+
+    // Phase 3: cursor up, rewrite without clearing screen
+    process.stdout.write(`\x1b[${printedLines}A`);
+    for (const r of freshRows) process.stdout.write(`\x1b[2K${printRow(r)}\n`);
+    // blank any leftover stale lines
+    for (let i = freshRows.length; i < staleLines.length; i++) process.stdout.write("\x1b[2K\n");
+    process.stdout.write(`\x1b[2K${dim("  ✓ up to date")}\n`);
     return;
   }
 
