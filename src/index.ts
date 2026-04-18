@@ -1579,6 +1579,8 @@ function extractMcpErrorMessage(payload: unknown): string | null {
 export type UsageData = {
   daily: Record<string, number>;
   monthly: Record<string, number>;
+  /** Automatically inferred from observed daily call counts. Never downgraded. */
+  inferredTier?: "free" | "member" | "plus";
 };
 
 export type TierLimits = { daily: number; monthly: number; name: string };
@@ -1610,12 +1612,24 @@ function monthKey(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
+function inferTierFromCount(count: number): "free" | "member" | "plus" {
+  if (count > 1000) return "plus";
+  if (count > 100) return "member";
+  return "free";
+}
+
+const TIER_RANK: Record<string, number> = { free: 0, member: 1, plus: 2 };
+
 export async function incrementUsage(): Promise<void> {
   const data = await loadUsage();
   const day = todayKey();
   const month = monthKey();
   data.daily[day] = (data.daily[day] ?? 0) + 1;
   data.monthly[month] = (data.monthly[month] ?? 0) + 1;
+  // auto-infer tier — never downgrade
+  const observed = inferTierFromCount(data.daily[day]);
+  const current = data.inferredTier ?? "free";
+  if (TIER_RANK[observed]! > TIER_RANK[current]!) data.inferredTier = observed;
   // prune old days (keep last 7) and old months (keep last 3)
   const dayKeys = Object.keys(data.daily).sort().slice(-7);
   const monthKeys = Object.keys(data.monthly).sort().slice(-3);
@@ -1655,11 +1669,15 @@ export function formatUsageLines(data: UsageData, limits: TierLimits): string[] 
   ];
 }
 
+function resolveTier(data: UsageData, override?: string): string {
+  return override ?? config.tier ?? data.inferredTier ?? "free";
+}
+
 /** Print usage warning if ≥80% of daily quota used. Call after commands. */
 export async function printUsageWarningIfNeeded(tier?: string): Promise<void> {
   try {
     const data = await loadUsage();
-    const limits = TIER_LIMITS[tier ?? "free"] ?? TIER_LIMITS.free!;
+    const limits = TIER_LIMITS[resolveTier(data, tier)] ?? TIER_LIMITS.free!;
     const dayUsed = data.daily[todayKey()] ?? 0;
     const pct = dayUsed / limits.daily;
     if (pct < 0.8) return;
@@ -1674,7 +1692,7 @@ export async function printUsageWarningIfNeeded(tier?: string): Promise<void> {
 
 export async function cmdDocsUsage(opts: { tier?: string } = {}): Promise<void> {
   const data = await loadUsage();
-  const tierKey = opts.tier ?? (config as any).tier ?? "free";
+  const tierKey = resolveTier(data, opts.tier);
   const limits = TIER_LIMITS[tierKey] ?? TIER_LIMITS.free!;
   console.log("API usage (Tencent Docs MCP):");
   for (const line of formatUsageLines(data, limits)) console.log(line);
