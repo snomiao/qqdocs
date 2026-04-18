@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/snomiao/qqdocs/compare/v1.17.2...v1.18.0) (2026-04-18)
+
+
+### Features
+
+* add API usage tracking and quota progress bars ([f4442f1](https://github.com/snomiao/qqdocs/commit/f4442f1085dac654511130366729b3e8c716e8f0))
+
 ## [1.17.2](https://github.com/snomiao/qqdocs/compare/v1.17.1...v1.17.2) (2026-04-18)
 
 
