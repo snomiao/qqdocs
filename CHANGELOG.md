@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/snomiao/qqdocs/compare/v1.19.0...v1.20.0) (2026-04-18)
+
+
+### Features
+
+* add usage calibrate subcommand ([6fcbb1f](https://github.com/snomiao/qqdocs/commit/6fcbb1f4dc5bfbc50fb4ad7d3e03561be017c15f))
+
 # [1.19.0](https://github.com/snomiao/qqdocs/compare/v1.18.0...v1.19.0) (2026-04-18)
 
 
