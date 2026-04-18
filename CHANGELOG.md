@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/snomiao/qqdocs/compare/v1.8.0...v1.9.0) (2026-04-18)
+
+
+### Features
+
+* OSC 8 hyperlinks in TTY, markdown links in non-TTY ([e4f5774](https://github.com/snomiao/qqdocs/commit/e4f57742656393838565427fd272a0b416e25b1e))
+
 # [1.8.0](https://github.com/snomiao/qqdocs/compare/v1.7.0...v1.8.0) (2026-04-18)
 
 
