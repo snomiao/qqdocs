@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/snomiao/qqdocs/compare/v1.9.0...v1.10.0) (2026-04-18)
+
+
+### Features
+
+* replace type column with dim .ext suffix in ls output ([62404c5](https://github.com/snomiao/qqdocs/commit/62404c56e6c4b4cf91457fe8f0cef89baccfff25))
+
 # [1.9.0](https://github.com/snomiao/qqdocs/compare/v1.8.0...v1.9.0) (2026-04-18)
 
 
