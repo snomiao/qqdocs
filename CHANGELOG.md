@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/snomiao/qqdocs/compare/v1.18.0...v1.19.0) (2026-04-18)
+
+
+### Features
+
+* auto-infer membership tier from observed daily call counts ([8a40146](https://github.com/snomiao/qqdocs/commit/8a4014624221a931276b3934f49a265051d58ff9))
+
 # [1.18.0](https://github.com/snomiao/qqdocs/compare/v1.17.2...v1.18.0) (2026-04-18)
 
 
