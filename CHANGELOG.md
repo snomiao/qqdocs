@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/snomiao/qqdocs/compare/v1.16.0...v1.17.0) (2026-04-18)
+
+
+### Features
+
+* SWR ls without screen clear; add owner+date in TTY fresh render ([3b6ea2b](https://github.com/snomiao/qqdocs/commit/3b6ea2b688cbc4680436cae08617d4886fc26121))
+
 # [1.16.0](https://github.com/snomiao/qqdocs/compare/v1.15.0...v1.16.0) (2026-04-18)
 
 
