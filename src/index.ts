@@ -620,7 +620,7 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
     for (const item of list) {
       const kind = item.is_folder ? "folder    " : docTypeFromUrl(item.url).padEnd(10);
       const url = item.url.startsWith("//") ? `https:${item.url}` : item.url;
-      console.log(`  [${kind}] ${item.title}  ${url}`);
+      console.log(`  [${kind}] ${formatLink(item.title, url)}`);
     }
     if (!finish) console.log("  … (more items exist)");
     return;
@@ -630,7 +630,7 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
   if (!files.length) { console.log("(no recent documents)"); return; }
   for (const f of files) {
     const type = docTypeFromUrl(f.file_url);
-    console.log(`  [${type.padEnd(10)}] ${f.file_name}  ${f.file_url}`);
+    console.log(`  [${type.padEnd(10)}] ${formatLink(f.file_name, f.file_url)}`);
   }
 }
 
@@ -640,7 +640,9 @@ export async function cmdDocsSearch(query: string, opts: { json?: boolean } = {}
   if (opts.json) { console.log(JSON.stringify(files, null, 2)); return; }
   if (!files.length) { console.log(`(no documents matching "${query}")`); return; }
   for (const f of files) {
-    console.log(`  ${(f as any).title ?? f.file_name}  ${(f as any).url ?? f.file_url}`);
+    const title = (f as any).title ?? f.file_name;
+    const url = (f as any).url ?? f.file_url;
+    console.log(`  ${formatLink(title, url)}`);
   }
 }
 
@@ -653,7 +655,7 @@ export async function cmdDocsRead(fileIdOrUrl: string) {
   ]);
   const title = (info?.title ?? info?.file_name) as string | undefined;
   const url = (info?.url ?? info?.file_url) as string | undefined;
-  if (title && url) console.log(`# [${title}](${url})\n`);
+  if (title && url) console.log(`# ${formatLink(title, url)}\n`);
   console.log(content);
 }
 
@@ -1274,6 +1276,14 @@ async function uploadImportBytes(uploadUrl: string, bytes: Uint8Array) {
     const suffix = body ? `: ${summarizeText(body, 160)}` : "";
     throw new Error(`Import upload failed with ${res.status} ${res.statusText}${suffix}`);
   }
+}
+
+const isTTY = Boolean(process.stdout.isTTY);
+
+/** OSC 8 hyperlink for TTY; `[text](url)` markdown for non-TTY. */
+export function formatLink(text: string, url: string): string {
+  if (isTTY) return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
+  return `[${text}](${url})`;
 }
 
 function printObject(obj: Record<string, unknown>) {
