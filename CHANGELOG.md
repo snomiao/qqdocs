@@ -1,3 +1,10 @@
+## [1.21.1](https://github.com/snomiao/qqdocs/compare/v1.21.0...v1.21.1) (2026-04-18)
+
+
+### Bug Fixes
+
+* correct membership URL to docs.qq.com/vip ([0d8eaee](https://github.com/snomiao/qqdocs/commit/0d8eaee4e9c9dbe21d92885d0ba1e043211df7ba))
+
 # [1.21.0](https://github.com/snomiao/qqdocs/compare/v1.20.0...v1.21.0) (2026-04-18)
 
 
