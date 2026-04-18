@@ -1,3 +1,10 @@
+## [1.17.2](https://github.com/snomiao/qqdocs/compare/v1.17.1...v1.17.2) (2026-04-18)
+
+
+### Bug Fixes
+
+* skip fetch when cache fresh (<1min), handle rate-limit gracefully ([26324a4](https://github.com/snomiao/qqdocs/commit/26324a4604bd975a146e05d1d226498a5ca5eb0c))
+
 ## [1.17.1](https://github.com/snomiao/qqdocs/compare/v1.17.0...v1.17.1) (2026-04-18)
 
 
