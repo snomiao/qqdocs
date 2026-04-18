@@ -671,11 +671,54 @@ async function fetchDates(ids: string[]): Promise<Map<string, string>> {
   return map;
 }
 
+function toRow(id: string, title: string, url: string, stale: boolean) {
+  const ext = docTypeExt(docTypeFromUrl(url));
+  return { id, title, url, ext, stale };
+}
+
 export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean; folder?: string; dates?: boolean } = {}) {
+  if (opts.json) {
+    // JSON mode: plain output regardless of TTY
+    if (opts.folder !== undefined) {
+      const folderId = await resolveFolderId(opts.folder ?? "");
+      const { list } = await listFolderContents(folderId);
+      console.log(JSON.stringify(list, null, 2));
+    } else {
+      const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
+      console.log(JSON.stringify(files, null, 2));
+    }
+    return;
+  }
+
+  if (isTTY) {
+    // SWR mode: render cache immediately, update with fresh data
+    const { render } = await import("ink");
+    const { LsView } = await import("./ls-view");
+    const React = (await import("react")).default;
+
+    const cached = (await loadSyncCache()).map(e => toRow(e.file_id, e.title, e.url, true));
+
+    const fetchFresh = async () => {
+      if (opts.folder !== undefined) {
+        const folderId = await resolveFolderId(opts.folder ?? "");
+        const { list } = await listFolderContents(folderId);
+        return list
+          .filter(i => !i.is_folder)
+          .map(i => toRow(i.id, i.title, i.url.startsWith("//") ? `https:${i.url}` : i.url, false));
+      }
+      const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
+      return files.map(f => toRow(f.file_id, f.file_name, f.file_url, false));
+    };
+
+    const { waitUntilExit } = render(React.createElement(LsView, { fetchFresh, cache: cached }));
+    await waitUntilExit();
+    return;
+  }
+
+  // Plain mode for non-TTY
   if (opts.folder !== undefined) {
     const folderId = await resolveFolderId(opts.folder ?? "");
     const { list, finish } = await listFolderContents(folderId);
-    if (opts.json) { console.log(JSON.stringify(list, null, 2)); return; }
     if (!list.length) { console.log("(empty folder)"); return; }
     const dates = opts.dates ? await fetchDates(list.filter(i => !i.is_folder).map(i => i.id)) : new Map();
     for (const item of list) {
@@ -688,7 +731,6 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
     return;
   }
   const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
-  if (opts.json) { console.log(JSON.stringify(files, null, 2)); return; }
   if (!files.length) { console.log("(no recent documents)"); return; }
   const dates = opts.dates ? await fetchDates(files.map(f => f.file_id)) : new Map();
   for (const f of files) {
