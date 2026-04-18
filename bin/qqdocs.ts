@@ -233,4 +233,5 @@ await yargs(hideBin(process.argv))
   .showHelpOnFail(true)
   .parse();
 
-await printUsageWarningIfNeeded(config.tier);
+const isUsageCmd = process.argv.slice(2).some(a => a === "usage");
+if (!isUsageCmd) await printUsageWarningIfNeeded(config.tier);
