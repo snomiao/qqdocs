@@ -740,12 +740,10 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
       freshRows = files.map(f => toRow(f.file_id, f.file_name, f.file_url, false, infoMap.get(f.file_id)));
     }
 
-    // Phase 3: cursor up, rewrite without clearing screen
+    // Phase 3: cursor up, rewrite in place, erase leftover stale lines
     process.stdout.write(`\x1b[${printedLines}A`);
     for (const r of freshRows) process.stdout.write(`\x1b[2K${printRow(r)}\n`);
-    // blank any leftover stale lines
-    for (let i = freshRows.length; i < staleLines.length; i++) process.stdout.write("\x1b[2K\n");
-    process.stdout.write(`\x1b[2K${dim("  ✓ up to date")}\n`);
+    process.stdout.write(`\x1b[J${dim("  ✓ up to date")}\n`);
     return;
   }
 
