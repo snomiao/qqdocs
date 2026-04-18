@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/snomiao/qqdocs/compare/v1.12.0...v1.13.0) (2026-04-18)
+
+
+### Features
+
+* show title/url and irreversibility warning on delete dry-run ([c06a5ad](https://github.com/snomiao/qqdocs/commit/c06a5addd49c56822559085376cb4cc1f648fddb))
+
 # [1.12.0](https://github.com/snomiao/qqdocs/compare/v1.11.0...v1.12.0) (2026-04-18)
 
 
