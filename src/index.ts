@@ -613,7 +613,7 @@ export function docTypeFromUrl(url: string): string {
 
 export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean; folder?: string } = {}) {
   if (opts.folder !== undefined) {
-    const folderId = opts.folder || undefined;
+    const folderId = (!opts.folder || opts.folder === "root") ? undefined : opts.folder;
     const { list, finish } = await listFolderContents(folderId);
     if (opts.json) { console.log(JSON.stringify(list, null, 2)); return; }
     if (!list.length) { console.log("(empty folder)"); return; }
