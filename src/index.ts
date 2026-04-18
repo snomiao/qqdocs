@@ -1705,14 +1705,19 @@ export async function cmdDocsUsage(opts: { tier?: string } = {}): Promise<void> 
   console.log(`  Upgrade: https://docs.qq.com/member`);
 }
 
-export async function cmdDocsUsageCalibrate(opts: { today?: number; tier?: string } = {}): Promise<void> {
+export async function cmdDocsUsageCalibrate(opts: { today?: number; month?: number; tier?: string } = {}): Promise<void> {
   const data = await loadUsage();
   const day = todayKey();
   const month = monthKey();
   if (opts.today !== undefined) {
     const delta = opts.today - (data.daily[day] ?? 0);
     data.daily[day] = opts.today;
-    data.monthly[month] = Math.max(0, (data.monthly[month] ?? 0) + delta);
+    if (opts.month === undefined) {
+      data.monthly[month] = Math.max(0, (data.monthly[month] ?? 0) + delta);
+    }
+  }
+  if (opts.month !== undefined) {
+    data.monthly[month] = opts.month;
   }
   if (opts.tier !== undefined) {
     if (!TIER_LIMITS[opts.tier]) throw new Error(`Unknown tier: ${opts.tier}. Use: free, member, plus`);
