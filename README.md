@@ -49,17 +49,17 @@ qqdocs raw <tool> --json '{"file_id":"..."}'          # raw tool call
 qqdocs ls [--json]                                   # recent documents
 qqdocs ls [root|<folder-id>] [--json]                # root or folder contents
 qqdocs search <query> [--json]                       # keyword search
-qqdocs read <file-id-or-url-or-name>                 # read document content
-qqdocs rename <file-id-or-url-or-name> <new-title>   # rename (alias: mv)
-qqdocs open <file-id-or-url-or-name>                 # open in browser
-qqdocs cp <file-id-or-url-or-name> [--title <t>]     # copy document (alias: copy)
-qqdocs delete <file-id-or-url>                       # dry run; prints delete confirm code (alias: rm)
-qqdocs delete <file-id-or-url> --confirm=1234        # delete using current content-hash code
-qqdocs delete <file-id-or-url> -c 1234               # same as --confirm
-qqdocs info <file-id-or-url> [--json]                # document metadata
+qqdocs read <ref>                 # read document content
+qqdocs rename <ref> <new-title>   # rename (alias: mv)
+qqdocs open <ref>                 # open in browser
+qqdocs cp <ref> [--title <t>]     # copy document (alias: copy)
+qqdocs delete <ref>                       # dry run; prints delete confirm code (alias: rm)
+qqdocs delete <ref> --confirm=1234        # delete using current content-hash code
+qqdocs delete <ref> -c 1234               # same as --confirm
+qqdocs info <ref> [--json]                # document metadata
 qqdocs import <path> [--title <title>]                # import pdf/docx/pptx/... or ingest .md/.mdx
-qqdocs perm get <file-id-or-url>                     # read permission
-qqdocs perm set <file-id-or-url> <private|link-read|link-edit>
+qqdocs perm get <ref>                     # read permission
+qqdocs perm set <ref> <private|link-read|link-edit>
 
 qqdocs space list [--scope all|mine|joined]
 qqdocs space create <title> [--description <text>]
@@ -68,11 +68,11 @@ qqdocs space mkdir <space-id> <title> [--parent <node-id>]
 qqdocs space mkdoc <space-id> <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsheet|form]
 qqdocs space link <space-id> <title> <url> [--description <text>]
 qqdocs space rm <space-id> <node-id> [--all]
-qqdocs space move <file-id-or-url> <space-id> [--parent <node-id>]
+qqdocs space move <ref> <space-id> [--parent <node-id>]
 
-qqdocs canvas read <file-id-or-url> [--page <page-id>] [--size <n>] [--next <token>] [--all]
-qqdocs canvas find <file-id-or-url> <query>
-qqdocs canvas edit <file-id-or-url> <insert-before|insert-after|append|update|delete>
+qqdocs canvas read <ref> [--page <page-id>] [--size <n>] [--next <token>] [--all]
+qqdocs canvas find <ref> <query>
+qqdocs canvas edit <ref> <insert-before|insert-after|append|update|delete>
                  [--id <block-id>] [--content '<mdx>']
 
 qqdocs create <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsheet|form]

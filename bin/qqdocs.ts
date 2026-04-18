@@ -17,13 +17,13 @@ import {
   cmdCanvasEdit,
   cmdCanvasFind,
   cmdCanvasRead,
-  cmdDocsCopy,
   cmdDocsCreate,
   cmdDocsDelete,
   cmdDocsInfo,
   cmdDocsImport,
   cmdDocsLs,
   cmdDocsOpen,
+  cmdDocsCopy,
   cmdDocsPermission,
   cmdDocsRead,
   cmdDocsRename,
@@ -44,6 +44,7 @@ import {
 await yargs(hideBin(process.argv))
   .scriptName(resolveScriptName())
   .usage("$0 <command> [options]")
+  .epilog("<ref> accepts a doc ID, a docs.qq.com URL, or a document name (unique match required)")
   .command("tools [pattern]", "List live Tencent Docs MCP tools", y => y
     .positional("pattern", { type: "string" }),
     async argv => cmdTools(argv.pattern))
@@ -62,28 +63,28 @@ await yargs(hideBin(process.argv))
     .positional("query", { type: "string", demandOption: true })
     .option("json", { type: "boolean", default: false }),
     async argv => cmdDocsSearch(argv.query, { json: argv.json }))
-  .command("read <file>", "Read document content (file ID, URL, or filename)", y => y
-    .positional("file", { type: "string", demandOption: true }),
-    async argv => cmdDocsRead(argv.file))
-  .command(["rename <file> <title>", "mv <file> <title>"], "Rename a document", y => y
-    .positional("file", { type: "string", demandOption: true })
+  .command("read <ref>", "Read document content", y => y
+    .positional("ref", { type: "string", demandOption: true }),
+    async argv => cmdDocsRead(argv.ref))
+  .command(["rename <ref> <title>", "mv <ref> <title>"], "Rename a document", y => y
+    .positional("ref", { type: "string", demandOption: true })
     .positional("title", { type: "string", demandOption: true }),
-    async argv => cmdDocsRename(argv.file, argv.title))
-  .command("open <file>", "Open a document in the default browser", y => y
-    .positional("file", { type: "string", demandOption: true }),
-    async argv => cmdDocsOpen(argv.file))
-  .command(["cp <file>", "copy <file>"], "Copy a document", y => y
-    .positional("file", { type: "string", demandOption: true })
+    async argv => cmdDocsRename(argv.ref, argv.title))
+  .command("open <ref>", "Open a document in the default browser", y => y
+    .positional("ref", { type: "string", demandOption: true }),
+    async argv => cmdDocsOpen(argv.ref))
+  .command(["cp <ref>", "copy <ref>"], "Copy a document", y => y
+    .positional("ref", { type: "string", demandOption: true })
     .option("title", { type: "string", describe: "New title for the copy" }),
-    async argv => cmdDocsCopy(argv.file, { title: argv.title }))
-  .command(["delete <file>", "rm <file>"], "Dry-run document delete; prints required --confirm=<4-digit-code>, then deletes when provided", y => y
-    .positional("file", { type: "string", demandOption: true })
+    async argv => cmdDocsCopy(argv.ref, { title: argv.title }))
+  .command(["delete <ref>", "rm <ref>"], "Dry-run document delete; prints required --confirm=<4-digit-code>, then deletes when provided", y => y
+    .positional("ref", { type: "string", demandOption: true })
     .option("confirm", { type: "string", alias: "c", describe: "4-digit code derived from current document content" }),
-    async argv => cmdDocsDelete(argv.file, { confirm: argv.confirm }))
-  .command("info <file>", "Show document metadata (file ID, URL, or filename)", y => y
-    .positional("file", { type: "string", demandOption: true })
+    async argv => cmdDocsDelete(argv.ref, { confirm: argv.confirm }))
+  .command("info <ref>", "Show document metadata", y => y
+    .positional("ref", { type: "string", demandOption: true })
     .option("json", { type: "boolean", default: false }),
-    async argv => cmdDocsInfo(argv.file, { json: argv.json }))
+    async argv => cmdDocsInfo(argv.ref, { json: argv.json }))
   .command(["import <path>", "upload <path>"], "Import a local file or create a doc from Markdown", y => y
     .positional("path", { type: "string", demandOption: true, describe: "Local file path" })
     .option("title", { type: "string", describe: "Document title override" })
@@ -100,14 +101,14 @@ await yargs(hideBin(process.argv))
       pollIntervalMs: argv.poll,
       timeoutMs: argv.timeout,
     }))
-  .command("perm", "Permission subcommands: get <url>; set <url> <private|link-read|link-edit>", y => y
-    .command("get <file>", "Get document permission", yy => yy
-      .positional("file", { type: "string", demandOption: true }),
-      async argv => cmdDocsPermission(argv.file))
-    .command("set <file> <policy>", "Set document permission", yy => yy
-      .positional("file", { type: "string", demandOption: true })
+  .command("perm", "Permission subcommands: get <ref>; set <ref> <private|link-read|link-edit>", y => y
+    .command("get <ref>", "Get document permission", yy => yy
+      .positional("ref", { type: "string", demandOption: true }),
+      async argv => cmdDocsPermission(argv.ref))
+    .command("set <ref> <policy>", "Set document permission", yy => yy
+      .positional("ref", { type: "string", demandOption: true })
       .positional("policy", { type: "string", demandOption: true, describe: "private|link-read|link-edit" }),
-      async argv => cmdDocsSetPermission(argv.file, argv.policy))
+      async argv => cmdDocsSetPermission(argv.ref, argv.policy))
     .demandCommand(1))
   .command("space", "Space management commands", y => y
     .command("list", "List spaces", yy => yy
@@ -164,30 +165,30 @@ await yargs(hideBin(process.argv))
       .positional("node", { type: "string", demandOption: true })
       .option("all", { type: "boolean", default: false, describe: "Delete the whole subtree" }),
       async argv => cmdSpaceRm(argv.space, argv.node, { all: argv.all }))
-    .command("move <file> <space>", "Move a file into a space", yy => yy
-      .positional("file", { type: "string", demandOption: true })
+    .command("move <ref> <space>", "Move a document into a space", yy => yy
+      .positional("ref", { type: "string", demandOption: true })
       .positional("space", { type: "string", demandOption: true })
       .option("parent", { type: "string", describe: "Target parent node ID" }),
-      async argv => cmdSpaceMove(argv.file, argv.space, { parentId: argv.parent }))
+      async argv => cmdSpaceMove(argv.ref, argv.space, { parentId: argv.parent }))
     .demandCommand(1))
   .command("canvas", "Smartcanvas commands", y => y
-    .command("read <file>", "Read smartcanvas content as MDX", yy => yy
-      .positional("file", { type: "string", demandOption: true })
+    .command("read <ref>", "Read smartcanvas content as MDX", yy => yy
+      .positional("ref", { type: "string", demandOption: true })
       .option("page", { type: "string", describe: "Page ID" })
       .option("size", { type: "number" })
       .option("next", { type: "string", describe: "Pagination token" })
       .option("all", { type: "boolean", default: false, describe: "Follow next_token until the whole document is read" }),
-      async argv => cmdCanvasRead(argv.file, { pageId: argv.page, size: argv.size, nextToken: argv.next, all: argv.all }))
-    .command("find <file> <query>", "Find blocks in a smartcanvas document", yy => yy
-      .positional("file", { type: "string", demandOption: true })
+      async argv => cmdCanvasRead(argv.ref, { pageId: argv.page, size: argv.size, nextToken: argv.next, all: argv.all }))
+    .command("find <ref> <query>", "Find blocks in a smartcanvas document", yy => yy
+      .positional("ref", { type: "string", demandOption: true })
       .positional("query", { type: "string", demandOption: true }),
-      async argv => cmdCanvasFind(argv.file, argv.query))
-    .command("edit <file> <action>", "Edit a smartcanvas document", yy => yy
-      .positional("file", { type: "string", demandOption: true })
+      async argv => cmdCanvasFind(argv.ref, argv.query))
+    .command("edit <ref> <action>", "Edit a smartcanvas document", yy => yy
+      .positional("ref", { type: "string", demandOption: true })
       .positional("action", { type: "string", demandOption: true })
       .option("id", { type: "string", describe: "Target block ID" })
       .option("content", { type: "string", describe: "MDX content" }),
-      async argv => cmdCanvasEdit(argv.file, argv.action as CanvasEditActionInput, { id: argv.id, content: argv.content }))
+      async argv => cmdCanvasEdit(argv.ref, argv.action as CanvasEditActionInput, { id: argv.id, content: argv.content }))
     .demandCommand(1))
   .command("create <title>", "Create a new document", y => y
     .positional("title", { type: "string", demandOption: true })
