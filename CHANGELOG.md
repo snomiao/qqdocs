@@ -1,3 +1,10 @@
+## [1.17.1](https://github.com/snomiao/qqdocs/compare/v1.17.0...v1.17.1) (2026-04-18)
+
+
+### Bug Fixes
+
+* use \x1b[J to erase leftover stale lines after SWR rewrite ([2f993f8](https://github.com/snomiao/qqdocs/commit/2f993f85e7d6c09f695f7d308131f8394782f172))
+
 # [1.17.0](https://github.com/snomiao/qqdocs/compare/v1.16.0...v1.17.0) (2026-04-18)
 
 
