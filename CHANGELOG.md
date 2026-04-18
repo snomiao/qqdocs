@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/snomiao/qqdocs/compare/v1.20.0...v1.21.0) (2026-04-18)
+
+
+### Features
+
+* add --month option to usage calibrate ([164814d](https://github.com/snomiao/qqdocs/commit/164814d72d1d1504a774450c07243b99037bf44c))
+
 # [1.20.0](https://github.com/snomiao/qqdocs/compare/v1.19.0...v1.20.0) (2026-04-18)
 
 
