@@ -126,7 +126,7 @@ async function mcpRequest(url: string, method: string, params: Record<string, un
 
 async function mcpCall(url: string, tool: string, args: Record<string, unknown> = {}, opts: McpCallOptions = {}): Promise<any> {
   const result = await mcpRequest(url, "tools/call", { name: tool, arguments: args }, opts);
-  incrementUsage().catch(() => {});
+  await incrementUsage().catch(() => {});
   const j = result as any;
   if (j.structuredContent !== undefined) return j.structuredContent;
   const text = j.content?.[0]?.text ?? "{}";
@@ -1753,6 +1753,7 @@ export async function cmdDocsUsage(opts: { tier?: string } = {}): Promise<void> 
   }
   console.log();
   console.log(`  Tier limits — free: 100/day  member: 1000/day  member plus: 2000/day  (all: 20000/month)`);
+  console.log(`  Calibrate: qqdocs usage calibrate --today <n> [--month <n>] [--tier free|member|plus]`);
   console.log(`  Set tier in ~/.qqdocs/config.yaml:  tier: member`);
   console.log(`  Upgrade: https://docs.qq.com/vip`);
 }
