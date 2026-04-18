@@ -47,7 +47,8 @@ qqdocs tools [pattern]                                # list live MCP tools
 qqdocs raw <tool> --json '{"file_id":"..."}'          # raw tool call
 
 qqdocs ls [--json]                                   # recent documents
-qqdocs ls [root|<folder-id>] [--json]                # root or folder contents
+qqdocs ls [root|<folder-id>|<name/subname>] [--json] # root, folder ID, or path navigation
+qqdocs ls --dates                                    # include last-modified dates
 qqdocs search <query> [--json]                       # keyword search
 qqdocs read <ref>                 # read document content
 qqdocs rename <ref> <new-title>   # rename (alias: mv)
@@ -80,6 +81,7 @@ qqdocs create <title> [--type smartcanvas|doc|sheet|slide|mind|flowchart|smartsh
                       [--content '<mdx-or-markdown>']
                       [--perm private|link-read|link-edit]
 
+qqdocs sync                                          # cache recent + root docs to ~/.qqdocs/cache.json
 qqdocs completion                                    # prints a shell completion script
 ```
 
@@ -139,6 +141,9 @@ import {
   createDoc,
   getFolderMeta,
   listFolderContents,
+  loadSyncCache,
+  resolveFolderId,
+  syncDocs,
   createSpace,
   createSpaceDocNode,
   editCanvas,

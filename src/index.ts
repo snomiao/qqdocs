@@ -7,8 +7,9 @@
 
 import { spawn } from "child_process";
 import { createHash } from "crypto";
-import { readFile, stat } from "fs/promises";
-import { basename, extname } from "path";
+import { readFile, stat, writeFile, mkdir } from "fs/promises";
+import { homedir } from "os";
+import { basename, extname, resolve as resolvePath } from "path";
 import { env } from "./env";
 
 const sleepMs = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
@@ -226,6 +227,32 @@ export async function listFolderContents(folderId?: string): Promise<{ list: Fol
 export async function getFolderMeta(folderId: string): Promise<{ id: string; parent_id: string; title: string }> {
   const r = await docs("manage.query_folder_meta", { folder_id: folderId });
   return r.folder;
+}
+
+/**
+ * Resolve a folder path like "项目文档/2026" to a folder ID.
+ * Each segment is matched against the listing at that level — unique match required.
+ * Pass undefined or "" or "root" for the root folder.
+ */
+export async function resolveFolderId(input: string): Promise<string | undefined> {
+  const trimmed = input.trim();
+  if (!trimmed || trimmed === "root") return undefined;
+  // If it looks like an ID (not a path with slashes), return as-is.
+  if (!trimmed.includes("/") && looksLikeFileId(trimmed)) return trimmed;
+  const segments = trimmed.split("/").map(s => s.trim()).filter(Boolean);
+  let parentId: string | undefined = undefined;
+  for (const seg of segments) {
+    const { list } = await listFolderContents(parentId);
+    const folders = list.filter(i => i.is_folder);
+    const matches = folders.filter(i => i.title === seg);
+    if (matches.length === 0) throw new Error(`Folder not found: "${seg}" (in ${parentId ?? "root"})`);
+    if (matches.length > 1) {
+      const ids = matches.map(m => m.id).join(", ");
+      throw new Error(`Ambiguous folder name "${seg}" — multiple matches: ${ids}`);
+    }
+    parentId = matches[0].id;
+  }
+  return parentId;
 }
 
 /** Search documents by keyword. */
@@ -646,7 +673,7 @@ async function fetchDates(ids: string[]): Promise<Map<string, string>> {
 
 export async function cmdDocsLs(opts: { count?: number; page?: number; json?: boolean; folder?: string; dates?: boolean } = {}) {
   if (opts.folder !== undefined) {
-    const folderId = (!opts.folder || opts.folder === "root") ? undefined : opts.folder;
+    const folderId = await resolveFolderId(opts.folder ?? "");
     const { list, finish } = await listFolderContents(folderId);
     if (opts.json) { console.log(JSON.stringify(list, null, 2)); return; }
     if (!list.length) { console.log("(empty folder)"); return; }
@@ -1328,6 +1355,52 @@ function printObject(obj: Record<string, unknown>) {
     if (v === null || v === undefined || v === "") continue;
     console.log(`  ${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`);
   }
+}
+
+export type SyncCacheEntry = { file_id: string; title: string; url: string; mtime?: number };
+
+export function syncCachePath(): string {
+  return resolvePath(homedir(), ".qqdocs", "cache.json");
+}
+
+export async function loadSyncCache(): Promise<SyncCacheEntry[]> {
+  try {
+    const raw = await readFile(syncCachePath(), "utf-8");
+    return JSON.parse(raw) as SyncCacheEntry[];
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch all recent docs + root folder contents and write to ~/.qqdocs/cache.json. */
+export async function syncDocs(): Promise<SyncCacheEntry[]> {
+  const [recentFiles, { list: folderItems }] = await Promise.all([
+    listRecent(100),
+    listFolderContents(undefined),
+  ]);
+  const seen = new Set<string>();
+  const entries: SyncCacheEntry[] = [];
+  for (const f of recentFiles) {
+    if (seen.has(f.file_id)) continue;
+    seen.add(f.file_id);
+    entries.push({ file_id: f.file_id, title: f.file_name, url: f.file_url });
+  }
+  for (const item of folderItems) {
+    if (item.is_folder || seen.has(item.id)) continue;
+    seen.add(item.id);
+    const url = item.url.startsWith("//") ? `https:${item.url}` : item.url;
+    entries.push({ file_id: item.id, title: item.title, url });
+  }
+  const dir = resolvePath(homedir(), ".qqdocs");
+  await mkdir(dir, { recursive: true });
+  await writeFile(syncCachePath(), JSON.stringify(entries, null, 2));
+  return entries;
+}
+
+export async function cmdDocsSync() {
+  process.stdout.write("Syncing…");
+  const entries = await syncDocs();
+  process.stdout.write(`\r✓ Synced ${entries.length} documents to ${syncCachePath()}\n`);
 }
 
 export function browserOpenCommand(platform: NodeJS.Platform = process.platform): { cmd: string; args: (url: string) => string[] } {

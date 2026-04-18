@@ -18,6 +18,7 @@ import {
   cmdCanvasFind,
   cmdCanvasRead,
   cmdDocsCreate,
+  cmdDocsSync,
   cmdDocsDelete,
   cmdDocsInfo,
   cmdDocsImport,
@@ -44,7 +45,13 @@ import {
 await yargs(hideBin(process.argv))
   .scriptName(resolveScriptName())
   .usage("$0 <command> [options]")
-  .epilog("<ref> accepts a doc ID, a docs.qq.com URL, or a document name (unique match required)")
+  .epilog(
+    "<ref> accepts any of:\n" +
+    "  - name   e.g. '账本'  (unique match required — use ID/URL if ambiguous)\n" +
+    "  - ID     e.g. 'DZFJhVkJHSUdJcENR'\n" +
+    "  - URL    e.g. 'https://docs.qq.com/sheet/DZFJhVkJHSUdJcENR'\n\n" +
+    "Note: name segments must be unique — duplicates throw; use ID/URL to disambiguate."
+  )
   .command("tools [pattern]", "List live Tencent Docs MCP tools", y => y
     .positional("pattern", { type: "string" }),
     async argv => cmdTools(argv.pattern))
@@ -79,7 +86,7 @@ await yargs(hideBin(process.argv))
     async argv => cmdDocsCopy(argv.ref, { title: argv.title }))
   .command(["delete <ref>", "rm <ref>"], "Dry-run document delete; prints required --confirm=<4-digit-code>, then deletes when provided", y => y
     .positional("ref", { type: "string", demandOption: true })
-    .option("confirm", { type: "string", alias: "c", describe: "4-digit code derived from current document content" }),
+    .option("confirm", { type: "string", alias: ["c", "sha"], describe: "4-digit code derived from current document content" }),
     async argv => cmdDocsDelete(argv.ref, { confirm: argv.confirm }))
   .command("info <ref>", "Show document metadata", y => y
     .positional("ref", { type: "string", demandOption: true })
@@ -190,6 +197,7 @@ await yargs(hideBin(process.argv))
       .option("content", { type: "string", describe: "MDX content" }),
       async argv => cmdCanvasEdit(argv.ref, argv.action as CanvasEditActionInput, { id: argv.id, content: argv.content }))
     .demandCommand(1))
+  .command("sync", "Cache recent + root folder docs to ~/.qqdocs/cache.json", async () => cmdDocsSync())
   .command("create <title>", "Create a new document", y => y
     .positional("title", { type: "string", demandOption: true })
     .option("type", {
@@ -205,7 +213,7 @@ await yargs(hideBin(process.argv))
       content: argv.content,
       perm: argv.perm,
     }))
-  .demandCommand(1, "Specify a subcommand: tools, raw, ls, search, read, rename, open, delete, info, import, perm, space, canvas, create")
+  .demandCommand(1, "Specify a subcommand: tools, raw, ls, search, read, rename, open, delete, info, import, perm, space, canvas, sync, create")
   .completion("completion", "Generate shell completion script (source it in your shell rc)")
   .strict()
   .help()
