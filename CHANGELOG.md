@@ -1,3 +1,10 @@
+## [1.22.2](https://github.com/snomiao/qqdocs/compare/v1.22.1...v1.22.2) (2026-04-18)
+
+
+### Bug Fixes
+
+* skip usage warning after qqdocs usage command itself ([87f61f2](https://github.com/snomiao/qqdocs/commit/87f61f29777aae102e3a132eb88e85ee0805a3d2))
+
 ## [1.22.1](https://github.com/snomiao/qqdocs/compare/v1.22.0...v1.22.1) (2026-04-18)
 
 
