@@ -1656,12 +1656,20 @@ export async function loadUsage(): Promise<UsageData> {
   }
 }
 
+function localDateStr(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDateStr();
 }
 
 function monthKey(): string {
-  return new Date().toISOString().slice(0, 7);
+  return localDateStr().slice(0, 7);
 }
 
 function inferTierFromCount(count: number): "free" | "member" | "plus" {
