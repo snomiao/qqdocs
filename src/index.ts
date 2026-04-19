@@ -706,10 +706,8 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
       return parts.join("  ");
     };
 
-    // Phase 1: print cached rows
-    const staleLines = cached.length
-      ? cached.map(r => r.stale ? dim(printRow(r)) : printRow(r))
-      : [dim("  (no cache — run qqdocs sync)")];
+    // Phase 1: print cached rows (or just a fetching line if no cache yet)
+    const staleLines = cached.map(r => r.stale ? dim(printRow(r)) : printRow(r));
     for (const l of staleLines) process.stdout.write(l + "\n");
 
     // Phase 2: skip fetch if cache is still fresh
@@ -750,6 +748,14 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
         const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
         const infoMap = opts.dates ? await fetchInfoMap(files.map(f => f.file_id)) : new Map();
         freshRows = files.map(f => toRow(f.file_id, f.file_name, f.file_url, false, infoMap.get(f.file_id)));
+        // persist fresh results (including dates/owner if fetched) back to sync cache
+        const newEntries: SyncCacheEntry[] = freshRows.map(r => ({
+          file_id: r.id, title: r.title, url: r.url,
+          ...(r.mtime ? { mtime: r.mtime } : {}),
+          ...(r.owner ? { owner: r.owner } : {}),
+        }));
+        const newCache: SyncCache = { syncedAt: Date.now(), entries: newEntries };
+        writeFile(syncCachePath(), JSON.stringify(newCache, null, 2)).catch(() => {});
       }
     } catch (err) {
       // network/rate-limit on main list fetch — show stale rows with error note
@@ -768,9 +774,11 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
   }
 
   // Plain mode for non-TTY
+  process.stderr.write("fetching…\r");
   if (opts.folder !== undefined) {
     const folderId = await resolveFolderId(opts.folder ?? "");
     const { list, finish } = await listFolderContents(folderId);
+    process.stderr.write("          \r");
     if (!list.length) { console.log("(empty folder)"); return; }
     const dates = opts.dates ? await fetchDates(list.filter(i => !i.is_folder).map(i => i.id)) : new Map();
     for (const item of list) {
@@ -783,6 +791,7 @@ export async function cmdDocsLs(opts: { count?: number; page?: number; json?: bo
     return;
   }
   const files = await listRecent(opts.count ?? 20, opts.page ?? 1);
+  process.stderr.write("          \r");
   if (!files.length) { console.log("(no recent documents)"); return; }
   const dates = opts.dates ? await fetchDates(files.map(f => f.file_id)) : new Map();
   for (const f of files) {
@@ -807,10 +816,19 @@ export async function cmdDocsSearch(query: string, opts: { json?: boolean } = {}
 export async function cmdDocsRead(fileIdOrUrl: string) {
   if (!fileIdOrUrl) { console.log("Usage: qqdocs read <file-id-or-url>"); return; }
   const fileId = await resolveFileId(fileIdOrUrl);
-  const [info, content] = await Promise.all([
-    getDocInfo(fileId).catch(() => null),
-    readDoc(fileId),
-  ]);
+  const cached = await getCachedDoc(fileId);
+  let info: any;
+  let content: string;
+  if (cached) {
+    info = cached.info;
+    content = cached.content;
+  } else {
+    [info, content] = await Promise.all([
+      getDocInfo(fileId).catch(() => null),
+      readDoc(fileId),
+    ]);
+    await setCachedDoc(fileId, content, info).catch(() => {});
+  }
   const title = (info?.title ?? info?.file_name) as string | undefined;
   const url = (info?.url ?? info?.file_url) as string | undefined;
   if (title && url) console.log(`# ${formatLink(title, url)}\n`);
@@ -1686,7 +1704,12 @@ function usageLockPath(): string {
 
 async function withUsageLock<T>(fn: () => Promise<T>): Promise<T> {
   const lock = usageLockPath();
-  const { open, unlink } = await import("fs/promises");
+  const { open, unlink, stat: fsStat } = await import("fs/promises");
+  // break stale lock (process crashed mid-write)
+  try {
+    const s = await fsStat(lock);
+    if (Date.now() - s.mtimeMs > 5000) await unlink(lock).catch(() => {});
+  } catch { /* lock doesn't exist yet */ }
   const deadline = Date.now() + 2000;
   while (true) {
     try {
@@ -1789,7 +1812,7 @@ export async function cmdDocsUsage(opts: { tier?: string } = {}): Promise<void> 
   console.log();
   console.log(`  Tier limits — free: 100/day  member: 1000/day  member plus: 2000/day  (all: 20000/month)`);
   console.log(`  Calibrate: qqdocs usage calibrate --today <n> [--month <n>] [--tier free|member|plus]`);
-  console.log(`  Set tier in ~/.qqdocs/config.yaml:  tier: member`);
+  if (!config.tier) console.log(`  Set tier in ~/.qqdocs/config.yaml:  tier: member`);
   console.log(`  Upgrade: https://docs.qq.com/vip`);
 }
 
