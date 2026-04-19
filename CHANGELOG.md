@@ -1,3 +1,10 @@
+# [1.23.0](https://github.com/snomiao/qqdocs/compare/v1.22.3...v1.23.0) (2026-04-19)
+
+
+### Features
+
+* add exclusive file lock for usage.json writes ([fe74521](https://github.com/snomiao/qqdocs/commit/fe7452167d4750e2a570e96e517f0f7d8a1584aa))
+
 ## [1.22.3](https://github.com/snomiao/qqdocs/compare/v1.22.2...v1.22.3) (2026-04-19)
 
 
