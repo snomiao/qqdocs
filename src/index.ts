@@ -1680,24 +1680,51 @@ function inferTierFromCount(count: number): "free" | "member" | "plus" {
 
 const TIER_RANK: Record<string, number> = { free: 0, member: 1, plus: 2 };
 
+function usageLockPath(): string {
+  return usagePath() + ".lock";
+}
+
+async function withUsageLock<T>(fn: () => Promise<T>): Promise<T> {
+  const lock = usageLockPath();
+  const { open, unlink } = await import("fs/promises");
+  const deadline = Date.now() + 2000;
+  while (true) {
+    try {
+      const fh = await open(lock, "wx");
+      await fh.close();
+      break;
+    } catch {
+      if (Date.now() > deadline) break; // give up after 2s rather than deadlock
+      await sleepMs(10);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    await unlink(lock).catch(() => {});
+  }
+}
+
 export async function incrementUsage(): Promise<void> {
-  const data = await loadUsage();
-  const day = todayKey();
-  const month = monthKey();
-  data.daily[day] = (data.daily[day] ?? 0) + 1;
-  data.monthly[month] = (data.monthly[month] ?? 0) + 1;
-  // auto-infer tier — never downgrade
-  const observed = inferTierFromCount(data.daily[day]);
-  const current = data.inferredTier ?? "free";
-  if (TIER_RANK[observed]! > TIER_RANK[current]!) data.inferredTier = observed;
-  // prune old days (keep last 7) and old months (keep last 3)
-  const dayKeys = Object.keys(data.daily).sort().slice(-7);
-  const monthKeys = Object.keys(data.monthly).sort().slice(-3);
-  data.daily = Object.fromEntries(dayKeys.map(k => [k, data.daily[k]]));
-  data.monthly = Object.fromEntries(monthKeys.map(k => [k, data.monthly[k]]));
-  const dir = resolvePath(homedir(), ".qqdocs");
-  await mkdir(dir, { recursive: true });
-  await writeFile(usagePath(), JSON.stringify(data, null, 2));
+  await withUsageLock(async () => {
+    const data = await loadUsage();
+    const day = todayKey();
+    const month = monthKey();
+    data.daily[day] = (data.daily[day] ?? 0) + 1;
+    data.monthly[month] = (data.monthly[month] ?? 0) + 1;
+    // auto-infer tier — never downgrade
+    const observed = inferTierFromCount(data.daily[day]);
+    const current = data.inferredTier ?? "free";
+    if (TIER_RANK[observed]! > TIER_RANK[current]!) data.inferredTier = observed;
+    // prune old days (keep last 7) and old months (keep last 3)
+    const dayKeys = Object.keys(data.daily).sort().slice(-7);
+    const monthKeys = Object.keys(data.monthly).sort().slice(-3);
+    data.daily = Object.fromEntries(dayKeys.map(k => [k, data.daily[k]]));
+    data.monthly = Object.fromEntries(monthKeys.map(k => [k, data.monthly[k]]));
+    const dir = resolvePath(homedir(), ".qqdocs");
+    await mkdir(dir, { recursive: true });
+    await writeFile(usagePath(), JSON.stringify(data, null, 2));
+  });
 }
 
 function progressBar(used: number, total: number, width = 20): string {
@@ -1767,31 +1794,33 @@ export async function cmdDocsUsage(opts: { tier?: string } = {}): Promise<void> 
 }
 
 export async function cmdDocsUsageCalibrate(opts: { today?: number; month?: number; tier?: string } = {}): Promise<void> {
-  const data = await loadUsage();
-  const day = todayKey();
-  const month = monthKey();
-  if (opts.today !== undefined) {
-    const delta = opts.today - (data.daily[day] ?? 0);
-    data.daily[day] = opts.today;
-    if (opts.month === undefined) {
-      data.monthly[month] = Math.max(0, (data.monthly[month] ?? 0) + delta);
+  await withUsageLock(async () => {
+    const data = await loadUsage();
+    const day = todayKey();
+    const month = monthKey();
+    if (opts.today !== undefined) {
+      const delta = opts.today - (data.daily[day] ?? 0);
+      data.daily[day] = opts.today;
+      if (opts.month === undefined) {
+        data.monthly[month] = Math.max(0, (data.monthly[month] ?? 0) + delta);
+      }
     }
-  }
-  if (opts.month !== undefined) {
-    data.monthly[month] = opts.month;
-  }
-  if (opts.tier !== undefined) {
-    if (!TIER_LIMITS[opts.tier]) throw new Error(`Unknown tier: ${opts.tier}. Use: free, member, plus`);
-    data.inferredTier = opts.tier as "free" | "member" | "plus";
-  }
-  // also re-infer from new count if not explicitly set
-  if (opts.today !== undefined && opts.tier === undefined) {
-    const inferred = inferTierFromCount(data.daily[day] ?? 0);
-    const current = data.inferredTier ?? "free";
-    if (TIER_RANK[inferred]! > TIER_RANK[current]!) data.inferredTier = inferred;
-  }
-  const dir = resolvePath(homedir(), ".qqdocs");
-  await mkdir(dir, { recursive: true });
-  await writeFile(usagePath(), JSON.stringify(data, null, 2));
-  console.log(`Calibrated: today=${data.daily[day] ?? 0}  month=${data.monthly[month] ?? 0}  inferredTier=${data.inferredTier ?? "free"}`);
+    if (opts.month !== undefined) {
+      data.monthly[month] = opts.month;
+    }
+    if (opts.tier !== undefined) {
+      if (!TIER_LIMITS[opts.tier]) throw new Error(`Unknown tier: ${opts.tier}. Use: free, member, plus`);
+      data.inferredTier = opts.tier as "free" | "member" | "plus";
+    }
+    // also re-infer from new count if not explicitly set
+    if (opts.today !== undefined && opts.tier === undefined) {
+      const inferred = inferTierFromCount(data.daily[day] ?? 0);
+      const current = data.inferredTier ?? "free";
+      if (TIER_RANK[inferred]! > TIER_RANK[current]!) data.inferredTier = inferred;
+    }
+    const dir = resolvePath(homedir(), ".qqdocs");
+    await mkdir(dir, { recursive: true });
+    await writeFile(usagePath(), JSON.stringify(data, null, 2));
+    console.log(`Calibrated: today=${data.daily[day] ?? 0}  month=${data.monthly[month] ?? 0}  inferredTier=${data.inferredTier ?? "free"}`);
+  });
 }
