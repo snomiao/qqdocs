@@ -1,3 +1,10 @@
+## [1.22.3](https://github.com/snomiao/qqdocs/compare/v1.22.2...v1.22.3) (2026-04-19)
+
+
+### Bug Fixes
+
+* use local date for usage day/month keys instead of UTC ([cf8986c](https://github.com/snomiao/qqdocs/commit/cf8986cd764f384faaa80cb89b9a429cc939365c))
+
 ## [1.22.2](https://github.com/snomiao/qqdocs/compare/v1.22.1...v1.22.2) (2026-04-18)
 
 
