@@ -42,6 +42,9 @@ in a YAML config. Lookup order:
 
 ## CLI
 
+A public read-only example document is available at:
+`https://docs.qq.com/aio/DZEZ6TEFiQmpGdUJy` (name: `qqdocs-example`, ID: `dFzLAbBjFuBr`)
+
 ```bash
 qqdocs tools [pattern]                                # list live MCP tools
 qqdocs raw <tool> --json '{"file_id":"..."}'          # raw tool call

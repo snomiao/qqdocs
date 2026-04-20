@@ -52,8 +52,8 @@ await yargs(hideBin(process.argv))
   .epilog(
     "<ref> accepts any of:\n" +
     "  - name   e.g. 'qqdocs-example'  (unique match required — use ID/URL if ambiguous)\n" +
-    "  - ID     e.g. 'djdzzVVtMIrP'\n" +
-    "  - URL    e.g. 'https://docs.qq.com/doc/DZGpkenpWVnRNSXJQ'\n\n" +
+    "  - ID     e.g. 'dFzLAbBjFuBr'\n" +
+    "  - URL    e.g. 'https://docs.qq.com/aio/DZEZ6TEFiQmpGdUJy'\n\n" +
     "Note: name segments must be unique — duplicates throw; use ID/URL to disambiguate."
   )
   .command("tools [pattern]", "List live Tencent Docs MCP tools", y => y
