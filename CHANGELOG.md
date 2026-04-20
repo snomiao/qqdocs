@@ -1,3 +1,10 @@
+## [1.24.1](https://github.com/snomiao/qqdocs/compare/v1.24.0...v1.24.1) (2026-04-20)
+
+
+### Bug Fixes
+
+* replace real file example in --help with public readonly example doc ([dc8beaa](https://github.com/snomiao/qqdocs/commit/dc8beaa59c81d9446196cbbe43590174b7d67170))
+
 # [1.24.0](https://github.com/snomiao/qqdocs/compare/v1.23.0...v1.24.0) (2026-04-20)
 
 
