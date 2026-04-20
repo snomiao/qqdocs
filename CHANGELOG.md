@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/snomiao/qqdocs/compare/v1.23.0...v1.24.0) (2026-04-20)
+
+
+### Features
+
+* compile native binaries via bun build --compile ([04fe7b9](https://github.com/snomiao/qqdocs/commit/04fe7b9df978e07653443437287adb657595807b))
+
 # [1.23.0](https://github.com/snomiao/qqdocs/compare/v1.22.3...v1.23.0) (2026-04-19)
 
 
