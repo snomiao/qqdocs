@@ -5,16 +5,17 @@ Tool: `hyperfine` with 3–8 runs and 1–2 warmups.
 
 ## Results summary
 
-| Command | Mean | Notes |
-|---------|------|-------|
-| `bun -e "process.exit(0)"` | 32 ms | bare Bun startup |
-| `qqdocs --help` | 300 ms | startup + yargs parse only |
-| `qqdocs usage` | 286 ms | startup + read usage.json |
-| `qqdocs tools` | 406 ms | startup + 312 ms tools/list API |
-| `qqdocs ls` (cache hit, TTL fresh) | 518 ms | startup + read cache.json |
-| `qqdocs ls` (cache stale, 1 API call) | 847 ms | startup + 143 ms API + write cache |
-| `qqdocs read <id>` (cold) | 832 ms | startup + 2× API (readDoc + getDocInfo) |
-| `qqdocs read <id>` (doc-cache hit) | 149 ms | startup + read doc-cache.json |
+| Command | Interpreted (`bun`) | Compiled binary | Speedup |
+|---------|--------------------|-----------------|----|
+| `bun -e "process.exit(0)"` | 32 ms | — | baseline |
+| `qqdocs --help` | 95 ms | 83 ms | 1.1× |
+| `qqdocs usage` | 123 ms | 74 ms | 1.7× |
+| `qqdocs ls` (cache hit) | 363 ms | 247 ms | 1.5× |
+| `qqdocs ls` (cache stale, 1 API) | 847 ms | ~710 ms | 1.2× |
+| `qqdocs read <id>` (cold) | 832 ms | ~695 ms | 1.2× |
+| `qqdocs read <id>` (doc-cache hit) | 149 ms | ~80 ms | 1.9× |
+
+> Compiled binary built with `bun build --compile`. Shipped as GitHub release assets for each platform.
 
 ## Network latency (raw curl, no Bun overhead)
 
@@ -94,15 +95,16 @@ repeated reads within a session.
 | HTTP keep-alive / connection reuse across calls | −20 ms per call | medium |
 | Parallel env + config load | −20 ms | low |
 
-### Highest ROI: `bun build --compile`
+### ✅ Done: `bun build --compile`
 
 ```bash
-bun build --compile bin/qqdocs.ts --outfile dist/qqdocs
+bun run build              # all platforms
+bun run build:darwin-arm64 # single platform
 ```
 
 Packages all TS into a single native binary — skips module resolution on
-every invocation. Estimated result: no-API commands drop from ~300 ms to
-~150 ms. Requires adding to CI/release pipeline.
+every invocation. Binaries for darwin-arm64/x64, linux-x64/arm64, windows-x64
+are built in CI and attached to each GitHub release as assets.
 
 ### Quick win: trim sync cache on write
 

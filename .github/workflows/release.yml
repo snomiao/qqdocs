@@ -64,3 +64,17 @@ jobs:
             echo "Publishing qqdocs@$PKG_VERSION with provenance"
             npm publish --provenance --access public
           fi
+
+      - name: Build cross-platform binaries
+        run: bun run build:all
+
+      - name: Upload binaries to GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG="v${PKG_VERSION}"
+          for f in dist/qqdocs-*; do
+            echo "Uploading $f to $TAG"
+            gh release upload "$TAG" "$f" --clobber || echo "skipped $f (release may not exist)"
+          done

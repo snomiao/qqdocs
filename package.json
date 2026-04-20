@@ -39,6 +39,13 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "bun x tsc --noEmit",
+    "build": "bun run build:all",
+    "build:all": "bun run build:darwin-arm64 && bun run build:darwin-x64 && bun run build:linux-x64 && bun run build:linux-arm64 && bun run build:windows-x64",
+    "build:darwin-arm64": "bun build --compile --target=bun-darwin-arm64 bin/qqdocs.ts --outfile dist/qqdocs-darwin-arm64",
+    "build:darwin-x64":   "bun build --compile --target=bun-darwin-x64   bin/qqdocs.ts --outfile dist/qqdocs-darwin-x64",
+    "build:linux-x64":    "bun build --compile --target=bun-linux-x64    bin/qqdocs.ts --outfile dist/qqdocs-linux-x64",
+    "build:linux-arm64":  "bun build --compile --target=bun-linux-arm64  bin/qqdocs.ts --outfile dist/qqdocs-linux-arm64",
+    "build:windows-x64":  "bun build --compile --target=bun-windows-x64  bin/qqdocs.ts --outfile dist/qqdocs-windows-x64.exe",
     "semantic-release": "semantic-release"
   },
   "dependencies": {
