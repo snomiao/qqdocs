@@ -32,6 +32,7 @@ import {
   cmdDocsSetPermission,
   cmdDocsUsage,
   cmdDocsUsageCalibrate,
+  cmdFlowchart,
   cmdRaw,
   cmdSpaceCreate,
   cmdSpaceLink,
@@ -201,6 +202,17 @@ await yargs(hideBin(process.argv))
       .option("content", { type: "string", describe: "MDX content" }),
       async argv => cmdCanvasEdit(argv.ref, argv.action as CanvasEditActionInput, { id: argv.id, content: argv.content }))
     .demandCommand(1))
+  .command("flowchart <title>", "Create a flowchart/UML/infra diagram from Mermaid syntax", y => y
+    .positional("title", { type: "string", demandOption: true })
+    .option("mermaid", { type: "string", alias: "m", describe: "Mermaid syntax string" })
+    .option("file", { type: "string", alias: "f", describe: "Path to .mmd/.mermaid file" })
+    .option("perm", { type: "string", describe: "private|link-read|link-edit" }),
+    async argv => {
+      const { readFileSync } = await import("fs");
+      const mermaid = argv.mermaid ?? (argv.file ? readFileSync(argv.file, "utf-8") : undefined);
+      if (!mermaid) { console.error("Provide --mermaid <string> or --file <path>"); process.exit(1); }
+      await cmdFlowchart(argv.title, mermaid, { perm: argv.perm });
+    })
   .command("sync", "Cache recent + root folder docs to ~/.qqdocs/cache.json", async () => cmdDocsSync())
   .command("usage", "Show API call usage and quota progress", y => y
     .command("calibrate", "Manually set today's/month's call count and/or tier", yy => yy
@@ -225,7 +237,7 @@ await yargs(hideBin(process.argv))
       content: argv.content,
       perm: argv.perm,
     }))
-  .demandCommand(1, "Specify a subcommand: tools, raw, ls, search, read, rename, open, delete, info, import, perm, space, canvas, sync, usage, create")
+  .demandCommand(1, "Specify a subcommand: tools, raw, ls, search, read, rename, open, delete, info, import, perm, space, canvas, flowchart, sync, usage, create")
   .completion("completion", "Generate shell completion script (source it in your shell rc)")
   .strict()
   .help()

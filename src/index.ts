@@ -977,6 +977,23 @@ export async function cmdDocsCreate(
   console.log(`Update: ${updateCommand}`);
 }
 
+export async function cmdFlowchart(
+  title: string,
+  mermaid: string,
+  opts: { perm?: string } = {},
+) {
+  const result = await docs("create_flowchart_by_mermaid", { title, mermaid });
+  const url = result.url as string;
+  const fileId = result.file_id as string;
+  console.log(`Created: ${title}`);
+  console.log(`URL: ${url}`);
+  console.log(`ID: ${fileId}`);
+  if (opts.perm) {
+    const policy = parseCreateDocPermissionPolicy(opts.perm);
+    if (policy !== 0) await setDocPermission(fileId, policy);
+  }
+}
+
 export async function cmdDocsImport(
   filePath: string,
   opts: {
