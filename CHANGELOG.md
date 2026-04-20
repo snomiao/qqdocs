@@ -1,3 +1,10 @@
+# [1.25.0](https://github.com/snomiao/qqdocs/compare/v1.24.1...v1.25.0) (2026-04-20)
+
+
+### Features
+
+* add qqdocs flowchart command for Mermaid diagrams ([c8c852e](https://github.com/snomiao/qqdocs/commit/c8c852e0ba57a5a9d75dc5964672fea46e526608))
+
 ## [1.24.1](https://github.com/snomiao/qqdocs/compare/v1.24.0...v1.24.1) (2026-04-20)
 
 
