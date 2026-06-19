@@ -2,6 +2,8 @@
 
 [English](./README.md) · **简体中文** · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
+📖 文档：<https://snomiao.github.io/qqdocs/zh-CN/>
+
 腾讯文档（[docs.qq.com](https://docs.qq.com)）命令行工具与代码库。它是 MCP
 JSON-RPC 接口的轻量封装——不依赖 SDK，无需握手，每次调用只发起一个 HTTP
 POST 请求。

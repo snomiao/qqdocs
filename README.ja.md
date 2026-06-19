@@ -2,6 +2,8 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · **日本語** · [한국어](./README.ko.md)
 
+📖 ドキュメント：<https://snomiao.github.io/qqdocs/ja/>
+
 Tencent Docs（[docs.qq.com](https://docs.qq.com)）の CLI およびライブラリ。
 MCP の JSON-RPC エンドポイントを薄くラップしたもので、SDK もハンドシェイクも
 不要、1 回の呼び出しにつき HTTP POST 1 回だけです。

@@ -2,6 +2,8 @@
 
 **English** · [简体中文](./README.zh-CN.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
+📖 Documentation: <https://snomiao.github.io/qqdocs/>
+
 Tencent Docs ([docs.qq.com](https://docs.qq.com)) CLI and library. Thin
 wrapper over the MCP JSON-RPC endpoints — no SDK, no handshake, one HTTP
 POST per call.
