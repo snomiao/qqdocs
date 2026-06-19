@@ -8,3 +8,10 @@ CLAUDE.md
 dist
 coverage
 .DS_Store
+
+# VitePress
+docs/.vitepress/dist
+docs/.vitepress/cache
+
+# rechrome / playwright artifacts
+.playwright-cli-multi-tab
