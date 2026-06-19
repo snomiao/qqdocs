@@ -64,7 +64,7 @@ await yargs(hideBin(process.argv))
     .positional("tool", { type: "string", demandOption: true })
     .option("json", { type: "string", default: "{}", describe: "JSON object arguments" }),
     async argv => cmdRaw(argv.tool, argv.json))
-  .command("ls [folder]", "List recently viewed documents, or folder contents when a folder ID is given", y => y
+  .command(["ls [folder]", "list [folder]"], "List recently viewed documents, or folder contents when a folder ID is given", y => y
     .positional("folder", { type: "string", describe: "Folder ID (omit for recent docs, pass 'root' for root folder)" })
     .option("count", { type: "number", default: 20, alias: "n" })
     .option("page", { type: "number", default: 1, alias: "p" })
