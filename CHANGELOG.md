@@ -1,3 +1,10 @@
+# [1.26.0](https://github.com/snomiao/qqdocs/compare/v1.25.0...v1.26.0) (2026-06-19)
+
+
+### Features
+
+* add "list" alias for the ls command ([85538b6](https://github.com/snomiao/qqdocs/commit/85538b60705331caf43b2e0f3f96dac3919b3fdc))
+
 # [1.25.0](https://github.com/snomiao/qqdocs/compare/v1.24.1...v1.25.0) (2026-04-20)
 
 
