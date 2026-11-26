@@ -90,5 +90,13 @@
       ],
       "@semantic-release/github"
     ]
+  },
+  "rustify": {
+    "mode": "hybrid",
+    "bins": {
+      "qqdoc": "qqdocs",
+      "qqdocs": "qqdocs"
+    },
+    "rootEnv": "QQDOCS_PACKAGE_ROOT"
   }
 }
