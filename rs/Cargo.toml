@@ -1,0 +1,15 @@
+[package]
+name = "qqdocs"
+version = "0.0.0"
+edition = "2021"
+description = "Tencent Docs (docs.qq.com) CLI and library — thin MCP JSON-RPC client."
+license = "MIT"
+
+[[bin]]
+name = "qqdocs"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

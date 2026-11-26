@@ -1,0 +1,39 @@
+# Builds the Rust `qqdocs` binary for every platform, packs it together with
+# the TypeScript the package ships, and checks on Linux, macOS and Windows
+# (x64 and arm64) that `bun i -g` / `npm i -g` gives working `qqdocs` and
+# `qqdoc` commands.
+#
+# It does not publish. Releases still go through release.yml.
+#
+# The pipeline lives in https://github.com/snomiao/rustify.
+
+name: rust-npm-release
+
+on:
+  pull_request:
+    paths:
+      - "rs/**"
+      - "package.json"
+      - ".github/workflows/rust-npm-release.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, without a leading v (default: the version in rs/Cargo.toml)"
+        required: false
+        type: string
+
+jobs:
+  build:
+    uses: snomiao/rustify/.github/workflows/rust-npm-build.yml@releases/v1
+    with:
+      manifest: rs/Cargo.toml
+      bins: qqdocs
+      version: ${{ inputs.version }}
+      # Both commands are the same binary, and it hands everything to
+      # bin/qqdocs.ts, so these go through the TypeScript on every machine.
+      # (--version is no use as the check: installed with bun, yargs cannot
+      # find the package and prints "unknown", today as well.)
+      smoke: qqdocs --help
+      smoke-expect: List live Tencent Docs MCP tools
+      smoke-extra: |
+        qqdoc --help => List live Tencent Docs MCP tools
