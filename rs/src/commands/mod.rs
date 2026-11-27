@@ -47,6 +47,13 @@ pub enum Command {
 
 /// The command line, if Rust runs it itself.
 pub fn parse(args: &[String]) -> Option<Command> {
+    // yargs prints a command's help when the last word that is not an
+    // option or an option's value is `help` (`qqdocs search help`). Which
+    // word that is depends on how much it knows about the options at each
+    // of its passes, so the word anywhere on the line is left to it.
+    if args.iter().any(|arg| arg == "help") {
+        return None;
+    }
     let (command, rest) = args.split_first()?;
     match command.as_str() {
         "tools" => tools::parse(rest).map(Command::Tools),
