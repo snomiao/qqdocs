@@ -268,13 +268,9 @@ pub fn number_to_string(n: f64) -> String {
     if n.is_infinite() {
         return if n > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
     }
-    // Rust's exponent form already carries the shortest round-trip digits.
-    let formatted = format!("{:e}", n.abs());
-    let (mantissa, exponent) = formatted.split_once('e').expect("exponent form");
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let k = digits.len() as i32;
     // The value is 0.d1d2…dk × 10^point.
-    let point = exponent.parse::<i32>().expect("exponent") + 1;
+    let (digits, point) = shortest_digits(n.abs());
+    let k = digits.len() as i32;
     let mut out = String::new();
     if n < 0.0 {
         out.push('-');
@@ -302,6 +298,71 @@ pub fn number_to_string(n: f64) -> String {
         out.push_str(&e.abs().to_string());
     }
     out
+}
+
+/// The digits ECMAScript writes for a positive, finite double, and where the
+/// decimal point goes (the value is 0.d1d2…dk × 10^point). By its definition
+/// (Number::toString, step 5): as few digits as read back as the same double;
+/// of several such spellings the one closest to the double; and of two that
+/// are equally close the one whose last digit is even.
+///
+/// Rust's own shortest formatting (`{:e}`) differs in that last rule, it
+/// takes the upper of the two (1459077941253781.25 becomes …81.3 where
+/// JavaScript writes …81.2). So this is worked out from the exact decimal
+/// expansion instead of taken from there.
+fn shortest_digits(x: f64) -> (String, i32) {
+    // A whole number below 2^53 is its own shortest spelling: any other
+    // decimal that close to it has more digits.
+    if x < 9_007_199_254_740_992.0 && x.fract() == 0.0 {
+        let text = (x as u64).to_string();
+        return (text.trim_end_matches('0').to_string(), text.len() as i32);
+    }
+    // Every double is a decimal fraction of at most 767 significant digits,
+    // and Rust writes as many digits as it is asked for exactly.
+    let exact = format!("{x:.770e}");
+    let (mantissa, exponent) = exact.split_once('e').expect("exponent form");
+    let exact: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).collect();
+    let exponent: i32 = exponent.parse().expect("exponent");
+    let reads_back = |digits: &[u8], exponent: i32| {
+        let text = format!("{}e{}", std::str::from_utf8(digits).expect("digits"), exponent - (digits.len() as i32 - 1));
+        text.parse::<f64>() == Ok(x)
+    };
+    // With k digits there are two candidates, the expansion cut off after k
+    // digits and the next number up. Seventeen digits always suffice.
+    for k in 1..=17 {
+        let (low, rest) = exact.split_at(k);
+        if rest.iter().all(|digit| *digit == b'0') {
+            return (String::from_utf8(low.to_vec()).expect("digits"), exponent + 1);
+        }
+        // The next number up; 99…9 becomes 1 with the exponent one higher.
+        let mut high = low.to_vec();
+        let mut high_exponent = exponent;
+        match high.iter().rposition(|digit| *digit != b'9') {
+            Some(at) => {
+                high[at] += 1;
+                high[at + 1..].fill(b'0');
+            }
+            None => {
+                high = vec![b'1'];
+                high_exponent += 1;
+            }
+        }
+        let take_high = match (reads_back(low, exponent), reads_back(&high, high_exponent)) {
+            (false, false) => continue,
+            (true, false) => false,
+            (false, true) => true,
+            // Both read back: the closer one, and the even one on a tie.
+            (true, true) => match rest[0].cmp(&b'5') {
+                std::cmp::Ordering::Less => false,
+                std::cmp::Ordering::Greater => true,
+                std::cmp::Ordering::Equal => rest[1..].iter().any(|digit| *digit != b'0') || (low[k - 1] - b'0') % 2 == 1,
+            },
+        };
+        let (digits, exponent) = if take_high { (high, high_exponent) } else { (low.to_vec(), exponent) };
+        let digits = String::from_utf8(digits).expect("digits");
+        return (digits.trim_end_matches('0').to_string(), exponent + 1);
+    }
+    unreachable!("seventeen digits identify every double")
 }
 
 /// `Math.round(x)`: halves go up, also below zero.
@@ -648,8 +709,43 @@ mod tests {
             (0.30000000000000004, "0.30000000000000004"),
             (-25.0, "-25"),
             (123.456, "123.456"),
+            (9007199254740992.0, "9007199254740992"),
+            (9007199254740994.0, "9007199254740994"),
+            (1152921504606846976.0, "1152921504606847000"),
+            (1e23, "1e+23"),
+            (2.2250738585072014e-308, "2.2250738585072014e-308"),
+            (4.35, "4.35"),
+            (100.0, "100"),
+            (0.5, "0.5"),
         ] {
             assert_eq!(number_to_string(n), text);
+        }
+    }
+
+    /// Doubles that lie exactly between two spellings of the shortest length:
+    /// JavaScript writes the one whose last digit is even. (Rust's `{:e}`
+    /// writes the upper one, e.g. …81.3 for the first.)
+    #[test]
+    fn a_tie_between_two_spellings_goes_to_the_even_digit() {
+        for (exact, text) in [
+            ("1459077941253781.25", "1459077941253781.2"),
+            ("172237639781087.625", "172237639781087.62"),
+            ("-951257392298430.25", "-951257392298430.2"),
+            ("247750044800341.125", "247750044800341.12"),
+            ("1262661521323025.25", "1262661521323025.2"),
+            ("1037828712724149.25", "1037828712724149.2"),
+            ("1132576346863060.25", "1132576346863060.2"),
+            // The upper one is the even one here.
+            ("1459077941253781.75", "1459077941253781.8"),
+            ("172237639781087.375", "172237639781087.38"),
+            // Not a tie: the closer one.
+            ("1459077941253781.5", "1459077941253781.5"),
+            ("0.15", "0.15"),
+        ] {
+            let n: f64 = exact.parse().unwrap();
+            assert_eq!(number_to_string(n), text);
+            assert_eq!(parse(text), Ok(Json::Num(n)), "{text} reads back");
+            assert_eq!(parse(exact).map(|value| value.compact()).as_deref(), Ok(text));
         }
     }
 
