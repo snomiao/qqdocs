@@ -266,6 +266,12 @@ fn fixed_zone() -> Res<i32> {
     if let Some(tz) = std::env::var_os("TZ") {
         return minutes_east_by_name(tz.to_str().ok_or(HandBack)?);
     }
+    // On macOS reading the system's zone has not been compared with bun on a
+    // Mac whose zone is UTC (the Mac the port was tried on is not), so there
+    // only TZ is taken.
+    if cfg!(target_os = "macos") {
+        return Err(HandBack);
+    }
     // The system's zone is the one /etc/localtime links to. Only UTC is
     // taken from there, and only where nothing else on the machine names
     // another zone.

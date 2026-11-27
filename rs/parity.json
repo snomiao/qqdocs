@@ -8983,6 +8983,7 @@
         "node <REPO>/rs/parity/home.mjs <HOME>"
       ],
       "handback": {
+        "darwin": "on macOS the binary takes the zone from TZ only: reading the system's zone there has not been compared with bun on a Mac set to UTC",
         "win32": "on Windows the binary hands every command back: it cannot tell there that the zone is UTC, and bun reads Windows' zones by rules of its own"
       }
     },

@@ -53,10 +53,11 @@
 // they are kept as they were, with those the binary now hands back marked.
 //
 // Every case sets TZ=UTC unless it is about the zone. One case leaves TZ out
-// and expects the binary to answer: that holds on a machine whose own zone is
-// UTC, as the machines of CI are (/etc/localtime links to Etc/UTC). On a
-// machine in another zone the binary hands that case back, and the hand-back
-// check says so.
+// and expects the binary to answer on Linux: that holds on a machine whose own
+// zone is UTC, as the Linux machines of CI are (/etc/localtime links to
+// Etc/UTC). On a Linux machine in another zone the binary hands that case
+// back, and the hand-back check says so. On macOS the binary takes the zone
+// from TZ only, so there that case goes back on every machine.
 //
 // No case runs `open`: it starts the default browser.
 
@@ -164,6 +165,7 @@ const ZONE = "the local day comes from the zone data inside bun; only zones fixe
 const NOT_REPRODUCED = "a failure that is the runtime's to judge (no connection, a redirect, a date to wait for)";
 // Per system (the runner's "Platforms"): what goes back only there, or is not run there.
 const WINDOWS = "on Windows the binary hands every command back: it cannot tell there that the zone is UTC, and bun reads Windows' zones by rules of its own";
+const MAC_ZONE = "on macOS the binary takes the zone from TZ only: reading the system's zone there has not been compared with bun on a Mac set to UTC";
 const SYMLINK = "Git Bash's ln -s copies the file it is given and cannot make a link to nowhere";
 
 // Sample data.
@@ -953,8 +955,8 @@ add("usage: counts that are fractions", ["usage"], { home: { ".qqdocs/usage.json
 back("usage: the day starts in the local zone, far east", ["usage"], ZONE, { env: { TZ: "Pacific/Kiritimati" }, home: { ".qqdocs/usage.json": usageAt(41) } });
 back("usage: the day starts in the local zone, far west", ["usage"], ZONE, { env: { TZ: "Pacific/Pago_Pago" }, home: { ".qqdocs/usage.json": usageAt(42) } });
 back("usage: the day starts in the local zone, Tokyo", ["usage"], ZONE, { env: { TZ: "Asia/Tokyo" }, home: { ".qqdocs/usage.json": usageAt(43) } });
-// Answered by the binary where the machine's own zone is UTC (see the top).
-add("usage: the system's zone when TZ is not set", ["usage"], { env: { TZ: null }, home: { ".qqdocs/usage.json": usageAt(44) } });
+// Answered by the binary on Linux where the machine's own zone is UTC (see the top).
+add("usage: the system's zone when TZ is not set", ["usage"], { env: { TZ: null }, handback: { darwin: MAC_ZONE }, home: { ".qqdocs/usage.json": usageAt(44) } });
 back("usage: a negative count", ["usage"], "the progress bar throws in the TypeScript", { home: { ".qqdocs/usage.json": usageAt(-5) } });
 back("usage: a counter file of another shape", ["usage"], "the TypeScript's arithmetic on a file of another shape is not reproduced", { home: { ".qqdocs/usage.json": '{"daily":[]}' } });
 back("usage: TZ in POSIX notation", ["usage"], ZONE, { env: { TZ: "JST-9" }, home: { ".qqdocs/usage.json": usageAt(5) } });

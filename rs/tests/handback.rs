@@ -251,7 +251,8 @@ fn only_a_zone_fixed_by_its_name_is_answered() {
         assert!(handed_back(&sandbox.command(&["usage"]).env("TZ", zone).output().unwrap()), "{zone:?}");
     }
     // Without TZ it is the machine's own zone: answered where /etc/localtime
-    // links to UTC (and /etc/timezone, if there is one, says the same).
+    // links to UTC (and /etc/timezone, if there is one, says the same), and
+    // never on macOS, where the binary takes the zone from TZ only.
     let is_utc = |name: &str| matches!(name.trim(), "UTC" | "Etc/UTC");
     let linked_to_utc = fs::read_link("/etc/localtime")
         .ok()
@@ -259,7 +260,7 @@ fn only_a_zone_fixed_by_its_name_is_answered() {
         .unwrap_or(false);
     let named_utc = fs::read_to_string("/etc/timezone").map(|name| is_utc(&name)).unwrap_or(!Path::new("/etc/timezone").exists());
     let output = sandbox.command(&["usage"]).env_remove("TZ").output().unwrap();
-    assert_eq!(handed_back(&output), !(linked_to_utc && named_utc), "{output:?}");
+    assert_eq!(handed_back(&output), cfg!(target_os = "macos") || !(linked_to_utc && named_utc), "{output:?}");
 }
 
 /// The package installs the same file under two names, `qqdocs` and `qqdoc`.
