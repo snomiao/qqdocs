@@ -1,0 +1,16 @@
+#!/bin/sh
+# Parity only. rs/parity/with-mock.mjs puts this directory first on PATH, so
+# every bun the cases start (the TypeScript side, and the JavaScript the
+# binary hands back to) loads the seam and cannot reach the real service.
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+old_ifs=$IFS
+IFS=:
+for dir in $PATH; do
+  [ "$dir" = "$here" ] && continue
+  if [ -x "$dir/bun" ]; then
+    IFS=$old_ifs
+    exec "$dir/bun" --preload "$here/../seam.ts" "$@"
+  fi
+done
+echo "parity: no bun on PATH besides the stand-in" >&2
+exit 127
