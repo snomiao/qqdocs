@@ -2,13 +2,13 @@
 //! (src/index.ts cmdDocsLs: the JSON mode and the "plain mode for non-TTY").
 
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{extension_for_url, info_call, link, looks_like_file_id, prop, template, Effects};
 use crate::args::{self, Flag, Kind, Opt, Spec};
+use crate::clock;
 use crate::env::{HandBack, Res};
 use crate::json::{self, Json};
-use crate::mcp::Mcp;
+use crate::mcp::{Failed, Mcp};
 
 pub struct Args {
     folder: Option<String>,
@@ -184,18 +184,23 @@ fn id_key(id: Option<&Json>) -> Option<String> {
     }
 }
 
-/// `fetchDates(ids)`: one `query_file_info` per document, all at once, and
-/// the last-modified time of each in words. The TypeScript leaves out the
-/// date of a document whose call fails; here a failed call hands the whole
-/// command back.
+/// `fetchDates(ids)`: one `query_file_info` per document, all at once
+/// (`Promise.allSettled`), and the last-modified time of each in words. A
+/// document whose call fails has no date; the others keep theirs.
 fn fetch_dates(mcp: &Mcp, ids: Vec<Option<&Json>>) -> Res<HashMap<String, String>> {
     let ids: Vec<String> = ids.into_iter().map(|id| id_key(id).ok_or(HandBack)).collect::<Res<_>>()?;
-    let answers = mcp.call_together(ids.iter().map(|id| info_call(id)).collect());
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| HandBack)?.as_millis() as f64;
+    let calls = ids.iter().map(|id| info_call(id)).map(|(tool, call_args)| (tool, call_args, true)).collect();
+    let answers = mcp.call_together(calls);
+    let now = clock::now_ms().ok_or(HandBack)?;
     let mut dates = HashMap::new();
     for (id, answer) in ids.into_iter().zip(answers) {
+        let answer = match answer {
+            Ok(answer) => answer,
+            // `r.status === "fulfilled"`
+            Err(Failed::Thrown) => continue,
+            Err(Failed::NotReproduced) => return Err(HandBack),
+        };
         // `r.value?.last_modify_time`
-        let answer = answer?;
         let modified = match &answer {
             Json::Null => None,
             other => prop(other, "last_modify_time")?,
@@ -226,27 +231,8 @@ fn relative_date(modified: &Json, now: f64) -> Res<String> {
     } else if diff < 7.0 * 86_400_000.0 {
         format!("{}d ago", whole(diff / 86_400_000.0))
     } else {
-        utc_date(ms).ok_or(HandBack)?
+        clock::utc_date(ms).ok_or(HandBack)?
     })
-}
-
-/// `new Date(ms).toISOString().slice(0, 10)` for the years 0000 to 9999.
-fn utc_date(ms: f64) -> Option<String> {
-    if !ms.is_finite() {
-        return None;
-    }
-    let days = (ms.trunc() / 86_400_000.0).floor() as i64;
-    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let day_of_era = z.rem_euclid(146_097);
-    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let shifted_month = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
-    let month = if shifted_month < 10 { shifted_month + 3 } else { shifted_month - 9 };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    (0..=9999).contains(&year).then(|| format!("{year:04}-{month:02}-{day:02}"))
 }
 
 #[cfg(test)]
@@ -270,17 +256,5 @@ mod tests {
         assert_eq!(relative_date(&json::string("1700000000000"), now).unwrap(), "2023-11-14");
         assert_eq!(relative_date(&json::string("1.7e12"), now), Err(HandBack));
         assert_eq!(relative_date(&Json::Bool(true), now), Err(HandBack));
-    }
-
-    #[test]
-    fn utc_dates() {
-        assert_eq!(utc_date(0.0).unwrap(), "1970-01-01");
-        assert_eq!(utc_date(-1.0).unwrap(), "1969-12-31");
-        assert_eq!(utc_date(951_782_400_000.0).unwrap(), "2000-02-29");
-        assert_eq!(utc_date(1_709_251_199_999.0).unwrap(), "2024-02-29");
-        assert_eq!(utc_date(253_402_300_799_999.0).unwrap(), "9999-12-31");
-        assert_eq!(utc_date(253_402_300_800_000.0), None);
-        assert_eq!(utc_date(-62_167_219_200_000.0).unwrap(), "0000-01-01");
-        assert_eq!(utc_date(-62_167_219_200_001.0), None);
     }
 }

@@ -24,11 +24,11 @@ pub fn run(env: &Env, mcp: &Mcp, effects: &mut Effects) -> Res<()> {
         return Err(HandBack);
     }
     // `Promise.all([listRecent(100), listFolderContents(undefined)])`
-    let recent = ("manage.recent_online_file", json::object([("num", Json::Num(1.0)), ("count", Json::Num(100.0))]));
-    let root = ("manage.folder_list", Json::Obj(Object::new()));
+    let recent = ("manage.recent_online_file", json::object([("num", Json::Num(1.0)), ("count", Json::Num(100.0))]), false);
+    let root = ("manage.folder_list", Json::Obj(Object::new()), false);
     let mut answers = mcp.call_together(vec![recent, root]).into_iter();
-    let recent = answers.next().ok_or(HandBack)??;
-    let root = answers.next().ok_or(HandBack)??;
+    let recent = answers.next().ok_or(HandBack)?.map_err(|_| HandBack)?;
+    let root = answers.next().ok_or(HandBack)?.map_err(|_| HandBack)?;
     let list_of = |answer: &Json, first: &str, second: Option<&str>| -> Res<Vec<Json>> {
         let mut found = answer.prop_nullish(first).map_err(|_| HandBack)?;
         if let (None, Some(second)) = (found, second) {

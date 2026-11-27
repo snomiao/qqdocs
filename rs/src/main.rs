@@ -6,6 +6,7 @@
 //! still ships, so nothing changes for users.
 
 mod args;
+mod clock;
 mod commands;
 mod env;
 mod js_fallback;

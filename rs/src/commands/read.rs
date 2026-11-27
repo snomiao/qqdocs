@@ -9,7 +9,7 @@ use super::{info_call, link, resolve_file_id, template, Effects};
 use crate::args::{self, Spec};
 use crate::env::{Env, HandBack, Res};
 use crate::json::{self, Json, Object};
-use crate::mcp::Mcp;
+use crate::mcp::{Failed, Mcp};
 
 pub struct Args {
     reference: String,
@@ -48,13 +48,18 @@ pub fn run(env: &Env, mcp: &Mcp, args: &Args, effects: &mut Effects) -> Res<()> 
             if mcp.calls() == 0 && !env.state_dir().is_dir() {
                 return Err(HandBack);
             }
-            // `Promise.all([getDocInfo(fileId).catch(() => null), readDoc(fileId)])`.
-            // The TypeScript goes on without a title when the first fails;
-            // here any failed call hands the command back.
-            let get_content = ("get_content", json::object([("file_id", json::string(&file_id))]));
-            let mut answers = mcp.call_together(vec![info_call(&file_id), get_content]).into_iter();
-            let info = answers.next().ok_or(HandBack)??;
-            let answer = answers.next().ok_or(HandBack)??;
+            // `Promise.all([getDocInfo(fileId).catch(() => null), readDoc(fileId)])`:
+            // without the information there is no title line; without the
+            // content there is an error, which the TypeScript reports.
+            let (info_tool, info_args) = info_call(&file_id);
+            let get_content = ("get_content", json::object([("file_id", json::string(&file_id))]), false);
+            let mut answers = mcp.call_together(vec![(info_tool, info_args, true), get_content]).into_iter();
+            let info = match answers.next().ok_or(HandBack)? {
+                Ok(info) => info,
+                Err(Failed::Thrown) => Json::Null,
+                Err(Failed::NotReproduced) => return Err(HandBack),
+            };
+            let answer = answers.next().ok_or(HandBack)?.map_err(|_| HandBack)?;
             // `typeof r?.content !== "string"` is an error.
             let content = match &answer {
                 Json::Obj(answer) => match answer.get("content") {
