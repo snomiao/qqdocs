@@ -14,7 +14,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const root = process.argv[process.argv.length - 1];
+if (process.argv.length !== 3) {
+  console.error(`home.mjs: wants one directory, got ${JSON.stringify(process.argv.slice(2))}`);
+  process.exit(2);
+}
+const root = process.argv[2];
 const entries = [];
 const problem = (error) => `(cannot be read: ${error.code ?? error.message})`;
 

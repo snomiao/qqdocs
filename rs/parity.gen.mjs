@@ -24,9 +24,8 @@
 // "handback"; a mark given as text holds on every system. A case that cannot
 // mean the same thing on a system carries "skip" for it: the cases that make
 // a symbolic link are not run on Windows, where Git Bash's `ln -s` copies the
-// file or fails. The probes are written for node (rs/parity/home.mjs, and a
-// one-liner for the age of a file), because macOS has no GNU `stat -c` or
-// `touch -d`.
+// file or fails. The probes are scripts for node (rs/parity/home.mjs and
+// rs/parity/age.mjs), because macOS has no GNU `stat -c` or `touch -d`.
 //
 // qqdocs talks to one address, https://docs.qq.com/openapi/mcp. No case
 // reaches it: rs/parity/with-mock.mjs starts a stand-in on 127.0.0.1 for
@@ -79,9 +78,8 @@ const REQUESTS = 'cat "$TMPDIR/mcp.log"';
 const DISTINCT_REQUESTS = 'cut -f3- "$TMPDIR/mcp.log" | sort -u';
 /** Everything in the home directory: names, modes and contents. */
 const HOME_STATE = "node <REPO>/rs/parity/home.mjs <HOME>";
-/** A shell line that leaves a file (empty if it was not there) last changed this many seconds ago. */
-const aged = (file, seconds) =>
-  `node -e 'const fs=require("fs"),[f,s]=process.argv.slice(-2),t=Date.now()*1e-3-Number(s);fs.closeSync(fs.openSync(f,"a"));fs.utimesSync(f,t,t)' ${file} ${seconds}`;
+/** A shell line that leaves a file in HOME (empty if it was not there) last changed this many seconds ago. */
+const aged = (file, seconds) => `node <REPO>/rs/parity/age.mjs ${seconds} ${file}`;
 
 /**
  * A shell line that writes a file under <HOME>. In the content, @TODAY@ and

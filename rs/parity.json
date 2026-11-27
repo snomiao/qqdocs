@@ -2693,7 +2693,7 @@
       },
       "setup": [
         "mkdir -p <HOME>/.qqdocs",
-        "node -e 'const fs=require(\"fs\"),[f,s]=process.argv.slice(-2),t=Date.now()*1e-3-Number(s);fs.closeSync(fs.openSync(f,\"a\"));fs.utimesSync(f,t,t)' <HOME>/.qqdocs/usage.json.lock 10"
+        "node <REPO>/rs/parity/age.mjs 10 <HOME>/.qqdocs/usage.json.lock"
       ],
       "after": [
         "cat \"$TMPDIR/mcp.log\"",
@@ -16098,7 +16098,7 @@
       },
       "setup": [
         "mkdir -p <HOME>/.qqdocs",
-        "node -e 'const fs=require(\"fs\"),[f,s]=process.argv.slice(-2),t=Date.now()*1e-3-Number(s);fs.closeSync(fs.openSync(f,\"a\"));fs.utimesSync(f,t,t)' <HOME>/.qqdocs/usage.json.lock 60"
+        "node <REPO>/rs/parity/age.mjs 60 <HOME>/.qqdocs/usage.json.lock"
       ],
       "after": [
         "cat \"$TMPDIR/mcp.log\"",
@@ -17772,7 +17772,7 @@
       },
       "setup": [
         "mkdir -p <HOME>/.qqdocs",
-        "node -e 'const fs=require(\"fs\"),[f,s]=process.argv.slice(-2),t=Date.now()*1e-3-Number(s);fs.closeSync(fs.openSync(f,\"a\"));fs.utimesSync(f,t,t)' <HOME>/.qqdocs/usage.json.lock 60"
+        "node <REPO>/rs/parity/age.mjs 60 <HOME>/.qqdocs/usage.json.lock"
       ],
       "after": [
         "cat \"$TMPDIR/mcp.log\"",
