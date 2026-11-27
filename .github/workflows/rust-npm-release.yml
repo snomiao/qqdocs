@@ -1,7 +1,8 @@
 # Builds the Rust `qqdocs` binary for every platform, packs it together with
-# the TypeScript the package ships, checks on Linux that the binary behaves
-# like the TypeScript, and checks on Linux, macOS and Windows (x64 and arm64)
-# that `bun i -g` / `npm i -g` gives working `qqdocs` and `qqdoc` commands.
+# the TypeScript the package ships, checks on Linux x64, macOS arm64 and
+# Windows x64 that the binary behaves like the TypeScript, and checks on
+# Linux, macOS and Windows (x64 and arm64) that `bun i -g` / `npm i -g` gives
+# working `qqdocs` and `qqdoc` commands.
 #
 # It does not publish. Releases still go through release.yml.
 #
@@ -38,33 +39,33 @@ jobs:
       # find the package and prints "unknown", today as well.)
       smoke: qqdocs --help
       smoke-expect: List live Tencent Docs MCP tools
-      # Rust against TypeScript, on the Linux binary that was just built
-      # (rs/parity.gen.mjs says how the cases work; no case reaches the real
-      # service). First that rs/parity.json is what the generator writes, then
-      # the comparison, then which cases the binary answered itself, then the
-      # crate's own tests. The repository has no lockfile, hence a plain
-      # `bun install`.
+      # Rust against TypeScript, on the binaries just built for each of these
+      # platforms (rs/parity.gen.mjs says how the cases work; no case reaches
+      # the real service). rs/parity/proof.mjs checks that rs/parity.json is
+      # what the generator writes and that every bun the cases start loads the
+      # stand-in's seam, then runs the comparison and the check of which cases
+      # the binary answered itself, in parts at once, beside the crate's own
+      # tests. On Windows the binary hands every command back, and the cases
+      # say so there; on macOS it takes the zone from TZ only. The repository
+      # has no lockfile, hence a plain `bun install`.
+      parity-platforms: '["linux-x64", "darwin-arm64", "win32-x64"]'
+      # A case takes about three times as long on Windows as on Linux.
+      parity-timeout-minutes: 45
       parity: >-
         bun install
-        && node rs/parity.gen.mjs --check
-        && node "$RUSTIFY_PARITY" --cases rs/parity.json
-        --ts "node rs/parity/with-mock.mjs bun bin/qqdocs.ts"
-        --rs "node rs/parity/with-mock.mjs env QQDOCS_PACKAGE_ROOT=$GITHUB_WORKSPACE $RUSTIFY_BIN_DIR/qqdocs"
-        && node "$RUSTIFY_PARITY" --cases rs/parity.json
-        --rs "node rs/parity/with-mock.mjs $RUSTIFY_BIN_DIR/qqdocs"
-        --handback QQDOCS_PACKAGE_ROOT=bin/qqdocs.ts
-        && cargo test --manifest-path rs/Cargo.toml
-      # Run once on every platform after installing; the parity job is Linux
-      # only. `usage` and `usage calibrate` are ported and need neither a
-      # token nor the network: they read and write ~/.qqdocs/usage.json. The
-      # binary answers them where the machine's zone is UTC and the current
-      # directory is not inside a JavaScript project; elsewhere (and always on
-      # Windows) it hands them back, and the JavaScript prints the same.
-      # `tools` without a token is handed back, and the TypeScript reports
-      # the missing token before it asks anything.
+        && node rs/parity/proof.mjs "$RUSTIFY_BIN_DIR/qqdocs" "$RUSTIFY_PARITY"
+      # Run once on every platform after installing. `usage` and `usage
+      # calibrate` are ported and need neither a token nor the network: they
+      # read and write ~/.qqdocs/usage.json. The binary answers them on Linux
+      # and macOS, outside a JavaScript project and in a zone fixed by its
+      # name (TZ is set here, as on macOS the binary reads the zone from TZ
+      # only), and hands them back on Windows. --help is yargs's, and `tools`
+      # without a token is the TypeScript's to report, on every platform.
+      smoke-env: |
+        TZ=UTC
       smoke-extra: |
-        qqdoc --help => List live Tencent Docs MCP tools
-        qqdocs usage => API usage (Tencent Docs MCP):
-        qqdocs usage calibrate --today 3 => Calibrated: today=3
-        qqdoc usage => 3/100
-        [1] qqdocs tools => TENCENT_DOCS_TOKEN not set
+        [handback] qqdoc --help => List live Tencent Docs MCP tools
+        [native:linux,darwin] [handback:win32] qqdocs usage => API usage (Tencent Docs MCP):
+        [native:linux,darwin] [handback:win32] qqdocs usage calibrate --today 3 => Calibrated: today=3
+        [native:linux,darwin] [handback:win32] qqdoc usage => 3/100
+        [1] [handback] qqdocs tools => TENCENT_DOCS_TOKEN not set
