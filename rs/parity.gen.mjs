@@ -8,13 +8,25 @@
 // Then, from the repository root (after `bun install` and a release build):
 //
 //   P=<rustify>/templates/parity/parity.mjs
+//   node rs/parity/with-mock.mjs --check
 //   node $P --cases rs/parity.json --ts "node rs/parity/with-mock.mjs bun bin/qqdocs.ts" \
-//           --rs "node rs/parity/with-mock.mjs env QQDOCS_PACKAGE_ROOT=$PWD rs/target/release/qqdocs"
+//           --rs "env QQDOCS_PACKAGE_ROOT=$PWD node rs/parity/with-mock.mjs rs/target/release/qqdocs"
 //   node $P --cases rs/parity.json --rs "node rs/parity/with-mock.mjs rs/target/release/qqdocs" \
 //           --handback QQDOCS_PACKAGE_ROOT=bin/qqdocs.ts
 //
-// The first run compares the two; the second shows which cases the binary
-// answered itself (it has to be exactly those not marked "handback").
+// (In Git Bash on Windows, $(pwd -W) instead of $PWD.) The first line checks
+// that every bun the cases start loads the stand-in's seam; the first run
+// compares the two; the second shows which cases the binary answered itself
+// (it has to be exactly those marked "handback" for the system it runs on).
+//
+// The same cases run on Linux, macOS and Windows. On Windows the binary hands
+// every command back (see WINDOWS below), so there every case is marked
+// "handback"; a mark given as text holds on every system. A case that cannot
+// mean the same thing on a system carries "skip" for it: the cases that make
+// a symbolic link are not run on Windows, where Git Bash's `ln -s` copies the
+// file or fails. The probes are written for node (rs/parity/home.mjs, and a
+// one-liner for the age of a file), because macOS has no GNU `stat -c` or
+// `touch -d`.
 //
 // qqdocs talks to one address, https://docs.qq.com/openapi/mcp. No case
 // reaches it: rs/parity/with-mock.mjs starts a stand-in on 127.0.0.1 for
@@ -65,8 +77,10 @@ const REQUESTS = 'cat "$TMPDIR/mcp.log"';
 /** The distinct requests, for cases where the JavaScript repeats what Rust asked. */
 const DISTINCT_REQUESTS = 'cut -f3- "$TMPDIR/mcp.log" | sort -u';
 /** Everything in the home directory: names, modes and contents. */
-const HOME_STATE =
-  'cd <HOME> && find . -mindepth 1 | sort | while read -r f; do if [ -d "$f" ]; then echo "== $f/ $(stat -c %a "$f")"; else echo "== $f $(stat -c %a "$f")"; cat "$f"; echo; fi; done';
+const HOME_STATE = "node <REPO>/rs/parity/home.mjs <HOME>";
+/** A shell line that leaves a file (empty if it was not there) last changed this many seconds ago. */
+const aged = (file, seconds) =>
+  `node -e 'const fs=require("fs"),[f,s]=process.argv.slice(-2),t=Date.now()*1e-3-Number(s);fs.closeSync(fs.openSync(f,"a"));fs.utimesSync(f,t,t)' ${file} ${seconds}`;
 
 /**
  * A shell line that writes a file under <HOME>. In the content, @TODAY@ and
@@ -118,6 +132,12 @@ function make(name, args, o) {
   for (const [file, content] of Object.entries(o.home || {})) setup.push(homeFile(file, content));
   setup.push(...(o.setup || []));
   if (cases.some((c) => c.name === name)) throw new Error(`two cases are named ${name}`);
+  // A mark given as text holds on every system. Every other case is answered
+  // by the binary on Linux and macOS (unless its own marks say otherwise for
+  // macOS) and handed back on Windows.
+  const handback = typeof o.handback === "string" ? o.handback : { ...(o.handback || {}), win32: WINDOWS };
+  const skip = { ...(o.skip || {}) };
+  if (setup.some((line) => /(^|[;&|] *)ln -s /.test(line))) skip.win32 = SYMLINK;
   return {
     name,
     args,
@@ -127,7 +147,8 @@ function make(name, args, o) {
     after: [o.late ? DISTINCT_REQUESTS : REQUESTS, ...(o.racyCount || o.noHome ? [] : [HOME_STATE]), ...(o.after || [])],
     ...(o.normalize ? { normalize: o.normalize } : {}),
     ...(o.timeout ? { timeout: o.timeout } : {}),
-    ...(o.handback ? { handback: o.handback } : {}),
+    handback,
+    ...(Object.keys(skip).length ? { skip } : {}),
   };
 }
 const add = (name, args, o = {}) => cases.push(make(name, args, o));
@@ -141,6 +162,9 @@ const HELP = "yargs prints the command's help when the last word is help; the wo
 const PROJECT = "bun reads package.json, tsconfig.json and jsconfig.json of the current directory and of those above it, and reports on them";
 const ZONE = "the local day comes from the zone data inside bun; only zones fixed by their name (UTC, Etc/GMT±N) are worked out here";
 const NOT_REPRODUCED = "a failure that is the runtime's to judge (no connection, a redirect, a date to wait for)";
+// Per system (the runner's "Platforms"): what goes back only there, or is not run there.
+const WINDOWS = "on Windows the binary hands every command back: it cannot tell there that the zone is UTC, and bun reads Windows' zones by rules of its own";
+const SYMLINK = "Git Bash's ln -s copies the file it is given and cannot make a link to nowhere";
 
 // Sample data.
 const planA = { file_id: "dFzLAbBjFuBr", file_name: "Plan A", file_url: "https://docs.qq.com/doc/DZEZ6TEFiQmpGdUJy" };
@@ -437,7 +461,7 @@ add("ls: an empty counter file is started afresh", ["ls"], { mock: mock(recent([
 add("ls: counts that are null or fractions", ["ls"], { mock: mock(recent([planA])), home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":null},"monthly":{"@MONTH@":2.5},"inferredTier":null}' } });
 add("ls: a stale lock beside the counter is removed", ["ls"], {
   mock: mock(recent([planA])),
-  setup: ["touch -d '10 seconds ago' <HOME>/.qqdocs/usage.json.lock"],
+  setup: [aged("<HOME>/.qqdocs/usage.json.lock", 10)],
 });
 add("ls: a lock that is held is waited for, two seconds, then ignored and removed", ["ls"], {
   mock: mock(recent([planA])),
@@ -1397,7 +1421,7 @@ for (const zone of ["Etc/GMT", "Etc/GMT+0", "Etc/GMT-0", "Etc/GMT0", "Etc/GMT+13
   });
   add("read: a counter lock left behind long ago is removed", ["read", "dFzLAbBjFuBr"], {
     mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "x")], [2]),
-    setup: ["touch -d '1 minute ago' <HOME>/.qqdocs/usage.json.lock"],
+    setup: [aged("<HOME>/.qqdocs/usage.json.lock", 60)],
   });
 
   // info, perm get
@@ -1539,7 +1563,7 @@ for (const zone of ["Etc/GMT", "Etc/GMT+0", "Etc/GMT-0", "Etc/GMT0", "Etc/GMT+13
     home: { ".qqdocs/usage.json": '{"note":"kept","monthly":{"zz":1,"@MONTH@":40,"7":7},"inferredTier":null,"daily":{"2001-01-01":1,"20260101":2,"@TODAY@":10,"5":5,"":0},"last":true}' },
   });
   add("calibrate: fractions in the file", ["usage", "calibrate", "--today", "3"], { home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":2.5},"monthly":{"@MONTH@":0.25}}' } });
-  add("calibrate: a counter lock left behind long ago", ["usage", "calibrate", "--today", "3"], { setup: ["touch -d '1 minute ago' <HOME>/.qqdocs/usage.json.lock"] });
+  add("calibrate: a counter lock left behind long ago", ["usage", "calibrate", "--today", "3"], { setup: [aged("<HOME>/.qqdocs/usage.json.lock", 60)] });
   add("calibrate: a counter lock taken just now is waited for, then ignored and removed", ["usage", "calibrate", "--today", "3"], { setup: ["touch <HOME>/.qqdocs/usage.json.lock"] });
   add("calibrate: a counter lock that is a directory", ["usage", "calibrate", "--today", "3"], { setup: ["mkdir <HOME>/.qqdocs/usage.json.lock"] });
   back("calibrate: the counter file is a directory", ["usage", "calibrate", "--today", "3"], REPORTED, { setup: ["mkdir <HOME>/.qqdocs/usage.json"] });
@@ -1709,16 +1733,29 @@ const spec = {
 };
 const json = `${JSON.stringify(spec, null, 2)}\n`;
 
+/** Who answers the case: `back` everywhere, or `rust` and the systems where it goes back or is skipped. */
+function who(c) {
+  if (typeof c.handback === "string") return "back";
+  const marks = [`back on ${Object.keys(c.handback).join(", ")}`, ...(c.skip ? [`skipped on ${Object.keys(c.skip).join(", ")}`] : [])];
+  return `rust (${marks.join("; ")})`;
+}
+
 if (process.argv.includes("--list")) {
-  for (const c of cases) console.log(`${c.handback ? "back" : "rust"}  ${c.name}`);
+  for (const c of cases) console.log(`${who(c)}  ${c.name}`);
 } else if (process.argv.includes("--check")) {
-  if (fs.readFileSync(OUT, "utf8") !== json) {
+  // A checkout on Windows may have turned the line ends into CR LF.
+  if (fs.readFileSync(OUT, "utf8").replace(/\r\n/g, "\n") !== json) {
     console.error("rs/parity.json is not what rs/parity.gen.mjs writes; run `node rs/parity.gen.mjs`");
     process.exit(1);
   }
   console.log(`rs/parity.json is current (${cases.length} cases)`);
 } else {
   fs.writeFileSync(OUT, json);
-  const handedBack = cases.filter((c) => c.handback).length;
-  console.log(`wrote ${cases.length} cases to rs/parity.json: ${cases.length - handedBack} for Rust, ${handedBack} handed back`);
+  const everywhere = cases.filter((c) => typeof c.handback === "string").length;
+  const count = (os) => cases.filter((c) => typeof c.handback === "object" && !(c.skip && os in c.skip) && !(os in c.handback)).length;
+  const skipped = (os) => cases.filter((c) => c.skip && os in c.skip).length;
+  console.log(
+    `wrote ${cases.length} cases to rs/parity.json: ${everywhere} handed back everywhere; for Rust ${count("linux")} on Linux, ` +
+      `${count("darwin")} on macOS, ${count("win32")} on Windows (${skipped("win32")} skipped there)`,
+  );
 }
