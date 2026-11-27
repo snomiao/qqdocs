@@ -1,4 +1,7 @@
-//! rustify JS fallback v1 — copy into the crate as `src/js_fallback.rs`.
+//! rustify JS fallback v4 — copy into the crate as `src/js_fallback.rs`.
+//! (v2: waits for the JavaScript on Ctrl+C on Windows. v3: starts the
+//! JavaScript with the runtime its own `#!` line names, and offers a
+//! TypeScript entry to bun only. v4: says so when bun is what is missing.)
 //!
 //! For the time when the Rust binary is already the command users run but some
 //! commands still exist only in the package's JavaScript. The binary handles
@@ -81,12 +84,13 @@ pub fn run(entry: &str) -> ! {
         }
     }
     let tried: Vec<&str> = candidates.iter().map(|c| c[0].as_str()).collect();
-    eprintln!(
-        "cannot run {}: none of {} could be started ({})",
-        script.display(),
-        tried.join(", "),
-        last_error.map(|e| e.to_string()).unwrap_or_default()
-    );
+    let reason = last_error.map(|e| e.to_string()).unwrap_or_default();
+    if tried == ["bun"] {
+        // A TypeScript entry: node is not offered, it cannot be relied on to run it.
+        eprintln!("cannot run {}: it needs bun, which could not be started ({reason}). See https://bun.sh", script.display());
+    } else {
+        eprintln!("cannot run {}: none of {} could be started ({reason})", script.display(), tried.join(", "));
+    }
     std::process::exit(127);
 }
 
