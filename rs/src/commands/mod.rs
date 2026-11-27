@@ -7,10 +7,15 @@
 //! out only once the command has succeeded. Until then any `HandBack` leaves
 //! the machine as it was, and the JavaScript does the work.
 
+pub mod canvas;
 pub mod info;
 pub mod ls;
+pub mod perm;
+pub mod raw;
 pub mod read;
 pub mod search;
+pub mod space;
+pub mod sync;
 pub mod tools;
 pub mod usage;
 
@@ -26,6 +31,13 @@ pub enum Command {
     Info(info::Args),
     Usage(usage::Args),
     Calibrate(usage::CalibrateArgs),
+    PermGet(perm::Args),
+    SpaceList(space::ListArgs),
+    SpaceLs(space::LsArgs),
+    CanvasRead(canvas::ReadArgs),
+    CanvasFind(canvas::FindArgs),
+    Raw(raw::Args),
+    Sync(sync::Args),
 }
 
 /// The command line, if Rust runs it itself.
@@ -39,6 +51,21 @@ pub fn parse(args: &[String]) -> Option<Command> {
         "info" => info::parse(rest).map(Command::Info),
         "usage" if rest.first().map(String::as_str) == Some("calibrate") => usage::parse_calibrate(&rest[1..]).map(Command::Calibrate),
         "usage" => usage::parse(rest).map(Command::Usage),
+        "raw" => raw::parse(rest).map(Command::Raw),
+        "sync" => sync::parse(rest).map(Command::Sync),
+        // Subcommands: the word after the command decides, nothing may stand
+        // between the two.
+        "perm" | "space" | "canvas" => {
+            let (sub, rest) = rest.split_first()?;
+            match (command.as_str(), sub.as_str()) {
+                ("perm", "get") => perm::parse_get(rest).map(Command::PermGet),
+                ("space", "list") => space::parse_list(rest).map(Command::SpaceList),
+                ("space", "ls") => space::parse_ls(rest).map(Command::SpaceLs),
+                ("canvas", "read") => canvas::parse_read(rest).map(Command::CanvasRead),
+                ("canvas", "find") => canvas::parse_find(rest).map(Command::CanvasFind),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -53,6 +80,13 @@ impl Command {
             Command::Search(args) => online(env, |mcp, effects| search::run(mcp, args, effects)),
             Command::Read(args) => online(env, |mcp, effects| read::run(env, mcp, args, effects)),
             Command::Info(args) => online(env, |mcp, effects| info::run(mcp, args, effects)),
+            Command::PermGet(args) => online(env, |mcp, effects| perm::run(mcp, args, effects)),
+            Command::SpaceList(args) => online(env, |mcp, effects| space::list(mcp, args, effects)),
+            Command::SpaceLs(args) => online(env, |mcp, effects| space::ls(mcp, args, effects)),
+            Command::CanvasRead(args) => online(env, |mcp, effects| canvas::read(mcp, args, effects)),
+            Command::CanvasFind(args) => online(env, |mcp, effects| canvas::find(mcp, args, effects)),
+            Command::Raw(args) => online(env, |mcp, effects| raw::run(mcp, args, effects)),
+            Command::Sync(_) => online(env, |mcp, effects| sync::run(env, mcp, effects)),
         }
     }
 }
@@ -270,6 +304,13 @@ mod tests {
             &["info", "x"],
             &["usage"],
             &["usage", "calibrate", "--today", "1"],
+            &["perm", "get", "x"],
+            &["space", "list"],
+            &["space", "ls", "s"],
+            &["canvas", "read", "x", "--all"],
+            &["canvas", "find", "x", "q"],
+            &["raw", "get_content"],
+            &["sync"],
         ] {
             assert!(taken(words), "{words:?}");
         }
