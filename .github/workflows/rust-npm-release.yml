@@ -1,7 +1,8 @@
 # Builds the Rust `qqdocs` binary for every platform, packs it together with
-# the TypeScript the package ships, and checks on Linux, macOS and Windows
-# (x64 and arm64) that `bun i -g` / `npm i -g` gives working `qqdocs` and
-# `qqdoc` commands.
+# the TypeScript the package ships, checks on Linux x64, macOS arm64 and
+# Windows x64 that the binary behaves like the TypeScript, and checks on
+# Linux, macOS and Windows (x64 and arm64) that `bun i -g` / `npm i -g` gives
+# working `qqdocs` and `qqdoc` commands.
 #
 # It does not publish. Releases still go through release.yml.
 #
@@ -13,6 +14,10 @@ on:
   pull_request:
     paths:
       - "rs/**"
+      # The parity cases compare the binary with the TypeScript, so a change
+      # to either side has to run them.
+      - "src/**"
+      - "bin/**"
       - "package.json"
       - ".github/workflows/rust-npm-release.yml"
   workflow_dispatch:
@@ -29,11 +34,38 @@ jobs:
       manifest: rs/Cargo.toml
       bins: qqdocs
       version: ${{ inputs.version }}
-      # Both commands are the same binary, and it hands everything to
-      # bin/qqdocs.ts, so these go through the TypeScript on every machine.
+      # --help is yargs's, so it is handed to bin/qqdocs.ts on every machine.
       # (--version is no use as the check: installed with bun, yargs cannot
       # find the package and prints "unknown", today as well.)
       smoke: qqdocs --help
       smoke-expect: List live Tencent Docs MCP tools
+      # Rust against TypeScript, on the binaries just built for each of these
+      # platforms (rs/parity.gen.mjs says how the cases work; no case reaches
+      # the real service). rs/parity/proof.mjs checks that rs/parity.json is
+      # what the generator writes and that every bun the cases start loads the
+      # stand-in's seam, then runs the comparison and the check of which cases
+      # the binary answered itself, in parts at once, beside the crate's own
+      # tests. On Windows the binary hands every command back, and the cases
+      # say so there; on macOS it takes the zone from TZ only. The repository
+      # has no lockfile, hence a plain `bun install`.
+      parity-platforms: '["linux-x64", "darwin-arm64", "win32-x64"]'
+      # A case takes about three times as long on Windows as on Linux.
+      parity-timeout-minutes: 45
+      parity: >-
+        bun install
+        && node rs/parity/proof.mjs "$RUSTIFY_BIN_DIR/qqdocs" "$RUSTIFY_PARITY"
+      # Run once on every platform after installing. `usage` and `usage
+      # calibrate` are ported and need neither a token nor the network: they
+      # read and write ~/.qqdocs/usage.json. The binary answers them on Linux
+      # and macOS, outside a JavaScript project and in a zone fixed by its
+      # name (TZ is set here, as on macOS the binary reads the zone from TZ
+      # only), and hands them back on Windows. --help is yargs's, and `tools`
+      # without a token is the TypeScript's to report, on every platform.
+      smoke-env: |
+        TZ=UTC
       smoke-extra: |
-        qqdoc --help => List live Tencent Docs MCP tools
+        [handback] qqdoc --help => List live Tencent Docs MCP tools
+        [native:linux,darwin] [handback:win32] qqdocs usage => API usage (Tencent Docs MCP):
+        [native:linux,darwin] [handback:win32] qqdocs usage calibrate --today 3 => Calibrated: today=3
+        [native:linux,darwin] [handback:win32] qqdoc usage => 3/100
+        [1] [handback] qqdocs tools => TENCENT_DOCS_TOKEN not set
