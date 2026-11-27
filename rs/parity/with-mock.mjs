@@ -16,6 +16,19 @@
 // TypeScript side of a case and the JavaScript a binary hands back to alike.
 // Nothing here can reach the real service.
 //
+// On Windows that `bun` is a shell script, which neither node nor the binary
+// starts: both look for bun.exe. There the seam goes in through BUN_OPTIONS,
+// which bun reads from the environment (after the case's own BUN_OPTIONS, if
+// it has one). The binary hands back whenever a BUN_ variable is set, so the
+// variable is left out where no real program can run: in the --handback
+// check, whose package root holds the parity runner's stand-in entry (one
+// console.log line), as long as the command is not bun itself.
+//
+//   node rs/parity/with-mock.mjs --check
+//
+// fails unless a bun started the way the cases start it loads the seam. The
+// parity command runs it first, on every platform.
+//
 // What the server answers comes from QQDOCS_PARITY_MOCK, a JSON object:
 //
 //   { "rules": [ { "tool": "get_content",            // tools/call of this tool
@@ -31,6 +44,8 @@
 //   { "error": <value> }        a JSON-RPC error
 //   { "status": 503, "body": "...", "headers": {...} }   any HTTP response
 //   { "drop": true }            the connection is closed without an answer
+//                               (the socket itself: under bun, res.destroy()
+//                               of a request that was held can send a 200)
 // A request no rule matches gets a JSON-RPC error saying so. In a reply, the
 // string "@now-90000" stands for the number of milliseconds since 1970 as of
 // 90 seconds before the reply is sent ("@now-90000@text" for the same as a
@@ -50,10 +65,34 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const [program, ...programArgs] = process.argv.slice(2);
+const isWindows = process.platform === "win32";
+const SEAM_MARK = 'Symbol.for("qqdocs-parity-seam")';
+const checking = process.argv[2] === "--check";
+const [program, ...programArgs] = checking ? ["bun", "-e", `process.exit(globalThis[${SEAM_MARK}] === true ? 0 : 3)`] : process.argv.slice(2);
 if (!program) {
-  console.error("usage: with-mock.mjs <command> [args...]");
+  console.error("usage: with-mock.mjs <command> [args...] | --check");
   process.exit(2);
+}
+
+/** True where the JavaScript this command could reach is only the runner's stand-in. */
+function onlyTheStandIn() {
+  if (/^bun(\.exe)?$/i.test(path.basename(program))) return false;
+  const root = process.env.QQDOCS_PACKAGE_ROOT;
+  if (!root) return false;
+  try {
+    return /^console\.log\("[^"\\]*"\);\n$/.test(fs.readFileSync(path.join(root, "bin", "qqdocs.ts"), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+/** What the program's bun needs to load the seam, beyond rs/parity/bin on PATH. */
+function seamVariables() {
+  if (!isWindows || onlyTheStandIn()) return {};
+  const key = Object.keys(process.env).find((name) => name.toUpperCase() === "BUN_OPTIONS") ?? "BUN_OPTIONS";
+  const seam = path.join(here, "seam.ts").replace(/\\/g, "/");
+  const own = process.env[key];
+  return { [key]: `--preload ${seam}${own ? ` ${own}` : ""}` };
 }
 
 const scenario = JSON.parse(process.env.QQDOCS_PARITY_MOCK || "{}");
@@ -101,8 +140,8 @@ function answer(entry) {
   const reply = replies.length
     ? replies[Math.min(rule.used++, replies.length - 1)]
     : { error: { code: -32601, message: `parity mock: no rule for ${call?.method} ${call?.params?.name ?? ""}`.trim() } };
-  const { res } = entry;
-  if (reply.drop) return res.destroy();
+  const { req, res } = entry;
+  if (reply.drop) return req.socket.destroy();
   if (reply.status !== undefined) {
     res.writeHead(reply.status, reply.headers || {});
     return res.end(reply.body ?? "");
@@ -147,7 +186,7 @@ const server = http.createServer((req, res) => {
       `authorization: ${shownToken(req.headers.authorization)}`,
       body,
     ].join("\t");
-    pending.push({ res, body, line });
+    pending.push({ req, res, body, line });
     if (pending.length >= want) release(false);
     else if (!timer) timer = setTimeout(() => release(true), HOLD_MS);
   });
@@ -155,15 +194,22 @@ const server = http.createServer((req, res) => {
 
 server.listen(0, "127.0.0.1", () => {
   const { port } = server.address();
+  // Path and PATH are one variable on Windows: keep the name it has.
+  const pathKey = Object.keys(process.env).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
   const child = spawn(program, programArgs, {
     stdio: "inherit",
     env: {
       ...process.env,
-      PATH: `${path.join(here, "bin")}${path.delimiter}${process.env.PATH ?? ""}`,
+      [pathKey]: `${path.join(here, "bin")}${path.delimiter}${process.env[pathKey] ?? ""}`,
+      ...seamVariables(),
       QQDOCS_PARITY_MCP_URL: `http://127.0.0.1:${port}/openapi/mcp`,
     },
   });
   const finish = (code) => {
+    if (checking) {
+      console.error(code === 0 ? "with-mock: bun loads the seam" : `with-mock: bun does not load the seam (exit code ${code}); the cases would reach the real service`);
+      process.exit(code === 0 ? 0 : 1);
+    }
     fs.writeFileSync(logFile, lines.length ? `${lines.join("\n")}\n` : "(no requests)\n");
     process.exit(code);
   };

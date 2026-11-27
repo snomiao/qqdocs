@@ -39,3 +39,6 @@ globalThis.fetch = Object.assign(
   },
   { preconnect: realFetch.preconnect },
 ) as typeof fetch;
+
+// For `with-mock.mjs --check`: the seam is in place.
+(globalThis as any)[Symbol.for("qqdocs-parity-seam")] = true;
