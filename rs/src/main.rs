@@ -5,7 +5,18 @@
 //! TypeScript; until then it is handed back to the JavaScript the package
 //! still ships, so nothing changes for users.
 
+// What the ported commands share. Nothing uses it yet.
+#[allow(dead_code)]
+mod args;
+#[allow(dead_code)]
+mod env;
 mod js_fallback;
+#[allow(dead_code)]
+mod json;
+#[allow(dead_code)]
+mod mcp;
+#[allow(dead_code)]
+mod usage;
 
 /// The package's JavaScript entry, relative to the package root.
 const JS_ENTRY: &str = "bin/qqdocs.ts";

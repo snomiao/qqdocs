@@ -13,3 +13,17 @@ path = "src/main.rs"
 opt-level = 3
 lto = "thin"
 strip = true
+
+[features]
+default = ["net"]
+# The HTTPS client. Switched off only to type-check the rest of the crate for
+# a target whose C compiler is not at hand (ring, underneath rustls, needs
+# one): `cargo check --no-default-features --target <target>`. A binary built
+# without it hands every command that needs the network back to the JavaScript.
+net = ["dep:ureq"]
+
+[dependencies]
+# Local date for the usage counter (reads TZ and the system zone).
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+# HTTPS client: blocking, rustls with ring and Mozilla's roots, no system TLS.
+ureq = { version = "3.5.2", default-features = false, features = ["rustls", "gzip"], optional = true }
