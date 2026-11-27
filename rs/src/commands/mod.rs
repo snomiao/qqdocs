@@ -6,6 +6,11 @@
 //! the document to remember are collected in `Effects`, which `main` carries
 //! out only once the command has succeeded. Until then any `HandBack` leaves
 //! the machine as it was, and the JavaScript does the work.
+//!
+//! Two commands write a file themselves, as their last step: `usage
+//! calibrate` (the counter) and `sync` (the list of documents). There a
+//! failed write is an error the TypeScript reports, so it has to be known
+//! before anything is printed.
 
 pub mod canvas;
 pub mod info;
