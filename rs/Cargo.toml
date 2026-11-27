@@ -23,7 +23,5 @@ default = ["net"]
 net = ["dep:ureq"]
 
 [dependencies]
-# Local date for the usage counter (reads TZ and the system zone).
-chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 # HTTPS client: blocking, rustls with ring and Mozilla's roots, no system TLS.
 ureq = { version = "3.5.2", default-features = false, features = ["rustls", "gzip"], optional = true }

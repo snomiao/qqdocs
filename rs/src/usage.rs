@@ -46,11 +46,7 @@ fn infer_tier(count: f64) -> &'static str {
 
 /// `localDateStr()`: today in the local zone, as `YYYY-MM-DD`.
 pub fn today_key() -> String {
-    if crate::env::zone_is_utc() {
-        chrono::Utc::now().format("%Y-%m-%d").to_string()
-    } else {
-        chrono::Local::now().format("%Y-%m-%d").to_string()
-    }
+    crate::env::local_day()
 }
 
 pub fn month_key(today: &str) -> String {

@@ -6,22 +6,30 @@
 //! 1. bun, before the program starts, loads `.env.development.local`,
 //!    `.env.local`, `.env.development` and `.env` from the current directory
 //!    into `process.env` (variables already set win; among the files that
-//!    order wins), and reads `bunfig.toml`.
+//!    order wins), reads `bunfig.toml`, and reads `package.json`,
+//!    `tsconfig.json` and `jsconfig.json` of the current directory and of
+//!    every directory above it.
 //! 2. src/env.ts then reads `.env.local` beside the package, in its two
 //!    parent directories, in the current directory and in `~/.qqdocs`, with a
 //!    reader of its own, for the token only.
 //! 3. src/config.ts reads the first `config.yaml` of four places with a YAML
 //!    parser.
 //!
+//! 4. The call counter is kept per local day, and JavaScript takes the local
+//!    day from the zone data inside its runtime.
+//!
 //! `startup` reproduces these for the plain cases and returns `HandBack` for
 //! every state it does not reproduce (a `.env` file in syntax bun interprets,
-//! a YAML file that is more than `key: value` lines, proxy settings, a
-//! terminal, …). It runs before anything is printed, sent or written.
+//! a YAML file that is more than `key: value` lines, a directory inside a
+//! JavaScript project, a zone that is not UTC, proxy settings, a terminal,
+//! …). It runs before anything is printed, sent or written.
 
 use std::fs;
 use std::io::{ErrorKind, IsTerminal};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
+use crate::clock;
 use crate::json;
 
 /// "Not mine": the invocation has to go to the JavaScript. Only ever returned
@@ -69,6 +77,22 @@ pub const OBJECT_MEMBERS: [&str; 12] = [
 /// The files bun loads when NODE_ENV is unset, strongest first.
 const BUN_DOTENV_FILES: [&str; 4] = [".env.development.local", ".env.local", ".env.development", ".env"];
 
+/// The files bun reads in the current directory and in every directory above
+/// it, whatever script it was asked to run. It writes what it finds wrong
+/// with them to standard error and goes on: a file it cannot parse, a key
+/// given twice, a `type` or an `exports` it does not accept.
+const PROJECT_FILES: [&str; 3] = ["package.json", "tsconfig.json", "jsconfig.json"];
+
+/// Minutes east of UTC of this machine's zone, set by `Env::startup`.
+static ZONE: OnceLock<i32> = OnceLock::new();
+
+/// `localDateStr()`: today in the local zone. Empty only before
+/// `Env::startup` has vouched for the clock.
+pub fn local_day() -> String {
+    let minutes_east = ZONE.get().copied().unwrap_or(0);
+    clock::now_ms().and_then(|now| clock::local_date(now, minutes_east)).unwrap_or_default()
+}
+
 const TOKEN: &str = "TENCENT_DOCS_TOKEN";
 
 impl Env {
@@ -84,10 +108,25 @@ impl Env {
                 return Err(HandBack);
             }
         }
-        local_zone_is_reproduced()?;
+        // 4. The local day, for a zone that needs no zone data.
+        let minutes_east = fixed_zone()?;
+        if clock::now_ms().and_then(|now| clock::local_date(now, minutes_east)).is_none() {
+            return Err(HandBack);
+        }
+        let _ = ZONE.set(minutes_east);
         let home = home_dir()?;
         let cwd = std::env::current_dir().map_err(|_| HandBack)?;
         let sep = std::path::MAIN_SEPARATOR;
+
+        // What bun accepts in a project's files without a word is its
+        // parsers' to say (they take comments and trailing commas, and warn
+        // about values they do not like), so a directory inside a project is
+        // left to it. A file of that name in any form counts.
+        for dir in cwd.ancestors() {
+            if PROJECT_FILES.iter().any(|file| !absent(&dir.join(file))) {
+                return Err(HandBack);
+            }
+        }
 
         // bun reads bunfig.toml from the directory and from the user's
         // configuration; it can preload scripts and switch .env loading off.
@@ -207,29 +246,72 @@ fn changes_the_runtime(key: &str) -> bool {
         || steers_the_runtime(&key)
 }
 
-/// The usage counter is kept per local day. JavaScript takes the zone from TZ
-/// when that names one (anything else is UTC to bun) and from the system
-/// otherwise; chrono reads the same two places, but not the same notations.
-fn local_zone_is_reproduced() -> Res<()> {
-    let Some(tz) = std::env::var_os("TZ") else { return Ok(()) };
-    let tz = tz.into_string().map_err(|_| HandBack)?;
-    if tz == "UTC" {
-        return Ok(());
+/// How many minutes east of UTC this machine's zone always is, if its name
+/// alone says so.
+///
+/// The usage counter is kept per local day. JavaScript takes the zone's name
+/// from TZ, or from the system when TZ is not set, and the zone's rules from
+/// the data inside its runtime (ICU, in bun). That data is of another release
+/// than the files in /usr/share/zoneinfo, and the two disagree wherever a
+/// zone's rules changed in between (America/Vancouver, between bun 1.4.0 and
+/// tzdata 2026b), so a day worked out from the system's files can be the
+/// wrong one. Only a zone that is a fixed number of hours from UTC by
+/// definition is the same in every release: UTC itself, and Etc/GMT±N.
+/// Every other zone, and every other way of naming one, goes back.
+fn fixed_zone() -> Res<i32> {
+    // Windows names its zones differently, and bun maps them by rules of its own.
+    if cfg!(windows) {
+        return Err(HandBack);
     }
-    let is_zone_name = !tz.is_empty()
-        && tz.split('/').all(|part| {
-            part.starts_with(|c: char| c.is_ascii_alphabetic()) && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '-'))
-        })
-        && tz.contains('/');
-    if cfg!(unix) && is_zone_name && Path::new("/usr/share/zoneinfo").join(&tz).is_file() {
-        return Ok(());
+    if let Some(tz) = std::env::var_os("TZ") {
+        return minutes_east_by_name(tz.to_str().ok_or(HandBack)?);
     }
-    Err(HandBack)
+    // The system's zone is the one /etc/localtime links to. Only UTC is
+    // taken from there, and only where nothing else on the machine names
+    // another zone.
+    let link = fs::read_link("/etc/localtime").map_err(|_| HandBack)?;
+    if !is_utc(linked_zone(link.to_str().ok_or(HandBack)?).ok_or(HandBack)?) {
+        return Err(HandBack);
+    }
+    match fs::read("/etc/timezone") {
+        Ok(bytes) if !is_utc(String::from_utf8_lossy(&bytes).trim()) => Err(HandBack),
+        Ok(_) => Ok(0),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(0),
+        Err(_) => Err(HandBack),
+    }
 }
 
-/// True when TZ is the one spelling that needs no zone file.
-pub fn zone_is_utc() -> bool {
-    std::env::var_os("TZ").is_some_and(|tz| tz == "UTC")
+fn is_utc(name: &str) -> bool {
+    matches!(name, "UTC" | "Etc/UTC")
+}
+
+/// The zone a link like `/usr/share/zoneinfo/Etc/UTC` names: what follows
+/// `/zoneinfo/`.
+fn linked_zone(target: &str) -> Option<&str> {
+    target.split_once("/zoneinfo/").map(|(_, name)| name)
+}
+
+/// The offset of a zone whose name fixes it: `UTC`, `Etc/UTC`, `Etc/GMT+N`
+/// (N hours behind UTC, 1 to 12; the sign is POSIX's) and `Etc/GMT-N` (N
+/// hours ahead, 1 to 14).
+fn minutes_east_by_name(name: &str) -> Res<i32> {
+    if is_utc(name) {
+        return Ok(0);
+    }
+    let hours = name.strip_prefix("Etc/GMT").ok_or(HandBack)?;
+    let (ahead, most) = match hours.chars().next() {
+        Some('+') => (-1, 12),
+        Some('-') => (1, 14),
+        _ => return Err(HandBack),
+    };
+    let digits = &hours[1..];
+    if digits.is_empty() || digits.len() > 2 || digits.starts_with('0') || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(HandBack);
+    }
+    match digits.parse::<i32>() {
+        Ok(n) if n <= most => Ok(ahead * n * 60),
+        _ => Err(HandBack),
+    }
 }
 
 fn absent(path: &Path) -> bool {
@@ -455,6 +537,24 @@ mod tests {
         ] {
             assert_eq!(plain_config_tier(text), Err(HandBack), "{text:?}");
         }
+    }
+
+    #[test]
+    fn only_zones_fixed_by_their_name_are_taken() {
+        for (name, minutes) in [("UTC", 0), ("Etc/UTC", 0), ("Etc/GMT+12", -720), ("Etc/GMT+1", -60), ("Etc/GMT-1", 60), ("Etc/GMT-8", 480), ("Etc/GMT-14", 840)] {
+            assert_eq!(minutes_east_by_name(name), Ok(minutes), "{name}");
+        }
+        for name in [
+            "", "utc", "GMT", "Etc/GMT", "Etc/GMT0", "Etc/GMT+0", "Etc/GMT-0", "Etc/GMT+13", "Etc/GMT-15", "Etc/GMT+01", "Etc/GMT+1.5", "Etc/GMT+", "Etc/GMT+１",
+            "Etc/UCT", "Etc/Zulu", "Asia/Tokyo", "Asia/Shanghai", "America/Vancouver", "Europe/London", "JST-9", "UTC0", ":UTC", "UTC ", "+08:00", "Etc/GMT-8 ",
+        ] {
+            assert_eq!(minutes_east_by_name(name), Err(HandBack), "{name:?}");
+        }
+        assert_eq!(linked_zone("/usr/share/zoneinfo/Etc/UTC"), Some("Etc/UTC"));
+        assert_eq!(linked_zone("../usr/share/zoneinfo/UTC"), Some("UTC"));
+        assert_eq!(linked_zone("/var/db/timezone/zoneinfo/Asia/Shanghai"), Some("Asia/Shanghai"));
+        assert_eq!(linked_zone("/usr/share/zoneinfo"), None);
+        assert_eq!(linked_zone("/etc/UTC"), None);
     }
 
     #[test]

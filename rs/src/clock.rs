@@ -1,4 +1,13 @@
-//! The time and the calendar, in one place.
+//! The time and the calendar, without a zone database.
+//!
+//! The TypeScript needs the calendar twice: `ls --dates` prints a UTC date,
+//! and the call counter is kept per local day. JavaScript takes the local day
+//! from the zone data built into its runtime (ICU, in bun), which is not the
+//! data this machine has in /usr/share/zoneinfo: the two are of different
+//! releases and disagree wherever a zone's rules changed in between. So the
+//! binary works only with zones that are a fixed number of hours from UTC by
+//! their very name, where there is nothing to look up (`env::startup` hands
+//! every other machine back), and a date is plain arithmetic.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,6 +35,13 @@ pub fn utc_date(ms: f64) -> Option<String> {
     (0..=9999).contains(&year).then(|| format!("{year:04}-{month:02}-{day:02}"))
 }
 
+/// `localDateStr()` of src/index.ts at a moment, in a zone that is always
+/// `minutes_east` of UTC: `YYYY-MM-DD` for the years 1000 to 9999 (the
+/// TypeScript does not pad the year).
+pub fn local_date(ms: f64, minutes_east: i32) -> Option<String> {
+    utc_date(ms + f64::from(minutes_east) * 60_000.0).filter(|date| !date.starts_with('0'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -40,5 +56,23 @@ mod tests {
         assert_eq!(utc_date(253_402_300_800_000.0), None);
         assert_eq!(utc_date(-62_167_219_200_000.0).unwrap(), "0000-01-01");
         assert_eq!(utc_date(-62_167_219_200_001.0), None);
+    }
+
+    #[test]
+    fn local_dates_in_fixed_zones() {
+        // 2026-11-27 07:31 UTC
+        let moment = 1_795_764_660_000.0;
+        assert_eq!(local_date(moment, 0).unwrap(), "2026-11-27");
+        assert_eq!(local_date(moment, -7 * 60).unwrap(), "2026-11-27");
+        assert_eq!(local_date(moment, -8 * 60).unwrap(), "2026-11-26");
+        assert_eq!(local_date(moment, -12 * 60).unwrap(), "2026-11-26");
+        assert_eq!(local_date(moment, 14 * 60).unwrap(), "2026-11-27");
+        assert_eq!(local_date(moment + 3.0 * 3_600_000.0, 14 * 60).unwrap(), "2026-11-28");
+        // The last day of a year, and of February in a leap year.
+        assert_eq!(local_date(1_798_761_599_000.0, 0).unwrap(), "2026-12-31");
+        assert_eq!(local_date(1_798_761_599_000.0, 60).unwrap(), "2027-01-01");
+        assert_eq!(local_date(1_835_481_600_000.0, -60).unwrap(), "2028-02-29");
+        // A year the TypeScript would write with fewer than four digits.
+        assert_eq!(local_date(-40_000_000_000_000.0, 0), None);
     }
 }
