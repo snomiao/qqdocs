@@ -35,6 +35,17 @@
 //              JSON-RPC error, a missing field). The JavaScript then asks
 //              again, so these compare which requests were made, not how many.
 //
+// The cases whose names start with `x ` were written by the independent
+// verification of this port (they found the word `help`, numbers that lie
+// between two spellings, the project files bun reads, and the zone data);
+// they are kept as they were, with those the binary now hands back marked.
+//
+// Every case sets TZ=UTC unless it is about the zone. One case leaves TZ out
+// and expects the binary to answer: that holds on a machine whose own zone is
+// UTC, as the machines of CI are (/etc/localtime links to Etc/UTC). On a
+// machine in another zone the binary hands that case back, and the hand-back
+// check says so.
+//
 // No case runs `open`: it starts the default browser.
 
 import fs from "node:fs";
@@ -81,8 +92,13 @@ const listRule = (replies) => ({ method: "tools/list", replies: [].concat(replie
 const ok = (structured) => ({ structured });
 /** An answer as JSON text in `content[0].text`. */
 const text = (value) => ({ text: typeof value === "string" ? value : JSON.stringify(value) });
-/** An HTTP 200 whose body is exactly this text. */
-const raw = (body) => ({ status: 200, headers: { "content-type": "application/json" }, body });
+/** An HTTP answer (200 unless said otherwise) whose body is exactly this text. */
+const raw = (body, status = 200) => ({ status, headers: { "content-type": "application/json" }, body });
+/** The same, around a JSON-RPC result or structured content given as text. */
+const rawResult = (resultJson, status = 200) => raw(`{"jsonrpc":"2.0","id":1,"result":${resultJson}}`, status);
+const rawStructured = (json, status = 200) => rawResult(`{"structuredContent":${json}}`, status);
+/** An HTTP answer of this status, with `Retry-After` if given. */
+const http = (status, retryAfter, body = "") => ({ status, headers: retryAfter === undefined ? {} : { "retry-after": String(retryAfter) }, body });
 const rpcError = (message, more = {}) => ({ error: { code: -32000, message, ...more } });
 const mock = (rules, batches) => ({ rules: [].concat(rules), ...(batches ? { batches } : {}) });
 
@@ -108,7 +124,9 @@ function make(name, args, o) {
     env,
     ...(o.files ? { files: o.files } : {}),
     setup,
-    after: [o.late ? DISTINCT_REQUESTS : REQUESTS, ...(o.racyCount ? [] : [HOME_STATE])],
+    after: [o.late ? DISTINCT_REQUESTS : REQUESTS, ...(o.racyCount || o.noHome ? [] : [HOME_STATE]), ...(o.after || [])],
+    ...(o.normalize ? { normalize: o.normalize } : {}),
+    ...(o.timeout ? { timeout: o.timeout } : {}),
     ...(o.handback ? { handback: o.handback } : {}),
   };
 }
@@ -119,6 +137,10 @@ const late = (name, args, why, o = {}) => cases.push(make(name, args, { ...o, ha
 const YARGS = "yargs answers this";
 const NOT_PORTED = "not ported: stays in the JavaScript";
 const REPORTED = "the TypeScript reports this error in bun's words";
+const HELP = "yargs prints the command's help when the last word is help; the word anywhere on the line is left to it";
+const PROJECT = "bun reads package.json, tsconfig.json and jsconfig.json of the current directory and of those above it, and reports on them";
+const ZONE = "the local day comes from the zone data inside bun; only zones fixed by their name (UTC, Etc/GMT±N) are worked out here";
+const NOT_REPRODUCED = "a failure that is the runtime's to judge (no connection, a redirect, a date to wait for)";
 
 // Sample data.
 const planA = { file_id: "dFzLAbBjFuBr", file_name: "Plan A", file_url: "https://docs.qq.com/doc/DZEZ6TEFiQmpGdUJy" };
@@ -253,8 +275,84 @@ add("ls: --dates with the same document twice", ["ls", "--dates"], {
 });
 add("ls: --dates with nothing to show asks nothing more", ["ls", "--dates"], { mock: mock(recent([])) });
 add("ls: --json --dates asks for no dates", ["ls", "--json", "--dates"], { mock: mock(recent([planA])) });
-late("ls: --dates when one of the calls fails", ["ls", "--dates"], "the TypeScript leaves that date out; Rust asks the JavaScript", {
+// A call for a date that fails: the TypeScript leaves that date out
+// (Promise.allSettled) and goes on. So does Rust, after the same requests.
+add("ls: --dates when one of the calls fails", ["ls", "--dates"], {
   mock: mock([recent([planA, budget]), infoOf(planA.file_id, { last_modify_time: 1700000000000 }), rule("manage.query_file_info", rpcError("no such file"), { file_id: budget.file_id })], [1, 2]),
+});
+const folderItems0 = [
+  { id: "folderAAAA01", is_folder: true, title: "Projects", url: "//docs.qq.com/desktop/folder/folderAAAA01" },
+  { id: "docBBBBBB02", is_folder: false, title: "Notes", url: "//docs.qq.com/doc/DdocBBBBBB02" },
+  { id: "sheetCCCC03", is_folder: false, title: "Numbers", url: "https://docs.qq.com/sheet/DsheetCCCC03" },
+];
+const thirty = Array.from({ length: 30 }, (_, i) => ({ file_id: `doc${String(i).padStart(7, "0")}`, file_name: `Doc ${i}`, file_url: `https://docs.qq.com/doc/D${i}` }));
+add("ls: --dates on thirty documents when one call fails: thirty-one requests, thirty counted", ["ls", "-n", "30", "--dates"], {
+  mock: mock([recent(thirty), rule("manage.query_file_info", rpcError("no such file"), { file_id: "doc0000007" }), rule("manage.query_file_info", ok({ last_modify_time: 1700000000000 }))], [1, 30]),
+  home: { ".qqdocs/usage.json": usageAt(40) },
+  after: ['wc -l < "$TMPDIR/mcp.log"'],
+  timeout: 300,
+});
+add("ls: --dates when every call fails", ["ls", "--dates"], {
+  mock: mock([recent([planA, budget]), rule("manage.query_file_info", rpcError("rate limited", { data: { message: "slow down" } }))], [1, 2]),
+  home: { ".qqdocs/usage.json": usageAt(3) },
+});
+const oneFails = (reply, batches = [1, 2]) => mock([recent([planA, budget]), infoOf(planA.file_id, { last_modify_time: 1700000000000 }), rule("manage.query_file_info", reply, { file_id: budget.file_id })], batches);
+for (const [what, reply] of [
+  ["answered with HTTP 404", http(404, undefined, "<html>Not Found</html>")],
+  ["answered with HTTP 403 and a JSON-RPC error", http(403, undefined, '{"error":{"message":"forbidden"}}')],
+  ["answered with HTTP 501, which is not asked again", http(501)],
+  ["answered with HTTP 400 and a Retry-After, which is not asked again", http(400, 0)],
+  ["answered with a body that is not JSON", raw("<html>maintenance</html>")],
+  ["answered with an empty body", raw("")],
+  ["answered with a JSON list", raw("[1,2]")],
+  ["answered with the JSON text null", raw("null")],
+  ["answered with HTTP 204", http(204)],
+]) {
+  add(`ls: --dates when one call is ${what}`, ["ls", "--dates"], { mock: oneFails(reply), home: { ".qqdocs/usage.json": usageAt(3) } });
+}
+// These count as calls: the TypeScript counts before it looks at the result.
+for (const [what, reply] of [
+  ["without a result", {}],
+  ["with a null result", { result: null }],
+  ["with content text that is not JSON", text("plain words")],
+]) {
+  add(`ls: --dates when one call is answered ${what}: counted, no date`, ["ls", "--dates"], { mock: oneFails(reply), home: { ".qqdocs/usage.json": usageAt(3) } });
+}
+// A status the TypeScript asks again for (408, 425, 429, 500, 502, 503, 504):
+// up to four attempts, waiting as long as Retry-After says.
+add("ls: --dates when one call is answered 503 twice and then properly", ["ls", "--dates"], {
+  mock: oneFails([http(503, 0), http(503, 0), ok({ last_modify_time: 1600000000000 })]),
+  home: { ".qqdocs/usage.json": usageAt(3) },
+});
+add("ls: --dates when one call is answered 429 on all four attempts", ["ls", "--dates"], {
+  mock: oneFails(http(429, 0, "slow down")),
+  home: { ".qqdocs/usage.json": usageAt(3) },
+});
+for (const status of [408, 425, 500, 502, 504]) {
+  add(`ls: --dates when one call is answered ${status} once`, ["ls", "--dates"], { mock: oneFails([http(status, 0), ok({ last_modify_time: 1600000000000 })]) });
+}
+add("ls: --dates when one call is told to wait a second", ["ls", "--dates"], { mock: oneFails([http(429, " 1 "), ok({ last_modify_time: 1600000000000 })]) });
+add("ls: --dates when one call is answered 503 without Retry-After: half a second, then again", ["ls", "--dates"], {
+  mock: oneFails([http(503), ok({ last_modify_time: 1600000000000 })]),
+});
+add("ls: --dates when one call is answered 503 with an empty Retry-After", ["ls", "--dates"], { mock: oneFails([http(503, ""), ok({ last_modify_time: 1600000000000 })]) });
+add("ls: a folder with --dates when one call fails", ["ls", "root", "--dates"], {
+  mock: mock([rule("manage.folder_list", ok({ list: folderItems0 })), rule("manage.query_file_info", rpcError("gone"), { file_id: "docBBBBBB02" }), rule("manage.query_file_info", ok({ last_modify_time: 1700000000000 }), { file_id: "sheetCCCC03" })], [1, 2]),
+});
+late("ls: --dates when one call is told to wait until a date", ["ls", "--dates"], NOT_REPRODUCED, {
+  mock: oneFails([http(503, "Wed, 21 Oct 2015 07:28:00 GMT"), ok({ last_modify_time: 1600000000000 })]),
+});
+late("ls: --dates when one call is told to wait in a notation of its own", ["ls", "--dates"], NOT_REPRODUCED, {
+  mock: oneFails([http(503, "0.0"), ok({ last_modify_time: 1600000000000 })]),
+});
+late("ls: --dates when the connection of one call is closed", ["ls", "--dates"], NOT_REPRODUCED, {
+  mock: oneFails([{ drop: true }, ok({ last_modify_time: 1600000000000 })]),
+});
+late("ls: --dates when one call is redirected", ["ls", "--dates"], NOT_REPRODUCED, {
+  mock: oneFails({ status: 302, headers: { location: "/openapi/elsewhere" }, body: "" }),
+});
+late("ls: --dates when one answer starts with a byte order mark", ["ls", "--dates"], "res.text() has its own rule for it", {
+  mock: oneFails({ status: 200, body: '\ufeff{"error":{"message":"x"}}' }),
 });
 late("ls: --dates with a time in another notation", ["ls", "--dates"], "JavaScript's own reading of numbers and dates", {
   mock: mock([recent([planA]), infoOf(planA.file_id, { last_modify_time: "1.7e12" })]),
@@ -522,8 +620,31 @@ late("read: several documents of that title", ["read", "Twin"], REPORTED, {
 // So the home directory is not compared here (`racyCount`).
 late("read: the service has no content for the document", ["read", ID], REPORTED, { mock: mock([info(docInfo), rule("get_content", ok({ error: "no permission" }))], [2]), racyCount: true });
 late("read: content that is not text", ["read", ID], REPORTED, { mock: mock([info(docInfo), rule("get_content", ok({ content: 5 }))], [2]), racyCount: true });
-late("read: the info call fails, the content call does not", ["read", ID], "the TypeScript goes on without a title; Rust asks the JavaScript", {
+// The information is asked for with `.catch(() => null)`: when that call
+// fails the document is printed without its title line, and remembered so.
+add("read: the info call fails, the content call does not", ["read", ID], {
   mock: mock([rule("manage.query_file_info", rpcError("not allowed")), content(BODY)], [2]),
+});
+for (const [what, reply] of [
+  ["is answered with HTTP 403", http(403, undefined, "Forbidden")],
+  ["is answered with a body that is not JSON", raw("<html></html>")],
+  ["is answered 500 on all four attempts", http(500, 0, "boom")],
+  ["is answered 503 once and then properly", [http(503, 0), ok(docInfo)]],
+  ["is answered without a result, which is counted", {}],
+  ["is answered with content text that is not JSON, which is counted", text("not json")],
+]) {
+  add(`read: the info call ${what}`, ["read", ID], { mock: mock([rule("manage.query_file_info", reply), content(BODY)], [2]), home: { ".qqdocs/usage.json": usageAt(5) } });
+}
+add("read: by title, when the info call fails", ["read", "Plan A"], {
+  mock: mock([found([{ file_id: ID, file_name: "Plan A" }]), rule("manage.query_file_info", rpcError("not allowed")), content(BODY)], [1, 2]),
+});
+late("read: the connection of the info call is closed", ["read", ID], NOT_REPRODUCED, {
+  mock: mock([rule("manage.query_file_info", [{ drop: true }, ok(docInfo)]), content(BODY)], [2]),
+});
+// The other way round the TypeScript reports the error (and Rust leaves the
+// asking again to it: the content call is not one whose failure is caught).
+late("read: the content call is answered 503 once", ["read", ID], "a status the TypeScript retries; Rust leaves the retrying to it", {
+  mock: mock([info(docInfo), rule("get_content", [http(503, 0), ok({ content: BODY })])], [2]),
 });
 back("read: without a document", ["read"], YARGS, { mock: readMock() });
 back("read: two documents", ["read", ID, "x"], YARGS, { mock: readMock() });
@@ -805,15 +926,16 @@ add("usage: .qqdocs.config.yaml in the current directory comes before the home d
 });
 add("usage: a counter file that is not JSON counts as empty", ["usage"], { home: { ".qqdocs/usage.json": "{{{" } });
 add("usage: counts that are fractions", ["usage"], { home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":12.5},"monthly":{"@MONTH@":0.4}}' } });
-add("usage: the day starts in the local zone, far east", ["usage"], { env: { TZ: "Pacific/Kiritimati" }, home: { ".qqdocs/usage.json": usageAt(41) } });
-add("usage: the day starts in the local zone, far west", ["usage"], { env: { TZ: "Pacific/Pago_Pago" }, home: { ".qqdocs/usage.json": usageAt(42) } });
-add("usage: the day starts in the local zone, Tokyo", ["usage"], { env: { TZ: "Asia/Tokyo" }, home: { ".qqdocs/usage.json": usageAt(43) } });
+back("usage: the day starts in the local zone, far east", ["usage"], ZONE, { env: { TZ: "Pacific/Kiritimati" }, home: { ".qqdocs/usage.json": usageAt(41) } });
+back("usage: the day starts in the local zone, far west", ["usage"], ZONE, { env: { TZ: "Pacific/Pago_Pago" }, home: { ".qqdocs/usage.json": usageAt(42) } });
+back("usage: the day starts in the local zone, Tokyo", ["usage"], ZONE, { env: { TZ: "Asia/Tokyo" }, home: { ".qqdocs/usage.json": usageAt(43) } });
+// Answered by the binary where the machine's own zone is UTC (see the top).
 add("usage: the system's zone when TZ is not set", ["usage"], { env: { TZ: null }, home: { ".qqdocs/usage.json": usageAt(44) } });
 back("usage: a negative count", ["usage"], "the progress bar throws in the TypeScript", { home: { ".qqdocs/usage.json": usageAt(-5) } });
 back("usage: a counter file of another shape", ["usage"], "the TypeScript's arithmetic on a file of another shape is not reproduced", { home: { ".qqdocs/usage.json": '{"daily":[]}' } });
-back("usage: TZ in POSIX notation", ["usage"], "bun reads only zone names from TZ; other notations are left to it", { env: { TZ: "JST-9" }, home: { ".qqdocs/usage.json": usageAt(5) } });
-back("usage: TZ that names no zone", ["usage"], "bun reads only zone names from TZ; other notations are left to it", { env: { TZ: "Mars/Olympus" } });
-back("usage: TZ with a colon in front", ["usage"], "bun reads only zone names from TZ; other notations are left to it", { env: { TZ: ":Asia/Tokyo" }, home: { ".qqdocs/usage.json": usageAt(5) } });
+back("usage: TZ in POSIX notation", ["usage"], ZONE, { env: { TZ: "JST-9" }, home: { ".qqdocs/usage.json": usageAt(5) } });
+back("usage: TZ that names no zone", ["usage"], ZONE, { env: { TZ: "Mars/Olympus" } });
+back("usage: TZ with a colon in front", ["usage"], ZONE, { env: { TZ: ":Asia/Tokyo" }, home: { ".qqdocs/usage.json": usageAt(5) } });
 back("usage: a tier that does not exist", ["usage", "--tier", "gold"], YARGS, {});
 back("usage: a word after it", ["usage", "today"], YARGS, {});
 back("usage: --help", ["usage", "--help"], YARGS, {});
@@ -973,13 +1095,614 @@ for (const args of [
   back(`not ported: ${args.join(" ")}`, args, NOT_PORTED, {});
 }
 
+// ── the word help ────────────────────────────────────────────────────────────
+// yargs prints a command's help when the last word that is not an option or
+// an option's value is `help`. (The verification's cases further down have
+// one per command.) The binary leaves the word to yargs wherever it stands.
+
+back("help: ls -d help", ["ls", "-d", "help"], HELP, { mock: mock([recent([planA]), rule("manage.folder_list", ok({ list: [] }))]) });
+back("help: canvas read as the value of --page", ["canvas", "read", ID, "--page", "help"], HELP, { mock: mock(rule("smartcanvas.read", ok({ content: "x" }))) });
+back("help: usage help", ["usage", "help"], HELP, {});
+back("help: sync help", ["sync", "help"], HELP, {});
+back("help: raw get_content help", ["raw", "get_content", "help"], HELP, {});
+back("help: space list help", ["space", "list", "help"], HELP, {});
+add("help: inside a value given with =, it is that value", ["space", "ls", "S", "--parent=help"], { mock: mock(rule("query_space_node", ok({ children: [] }))) });
+add("help: as part of a longer word", ["search", "helpdesk"], { mock: mock(found([])) });
+add("help: with blanks around it, it is a query", ["search", " help "], { mock: mock(found([])) });
+
+// ── project files ────────────────────────────────────────────────────────────
+// bun reads package.json, tsconfig.json and jsconfig.json of the current
+// directory and of every directory above it before the program starts, and
+// writes to standard error what it finds wrong with them. A directory inside
+// a project is handed back, whatever the files hold.
+
+const lsOnce = mock(recent([planA]));
+back("project: an ordinary package.json in the current directory", ["ls"], PROJECT, {
+  mock: lsOnce,
+  files: { "package.json": '{\n  "name": "some-project",\n  "version": "1.0.0",\n  "type": "module",\n  "scripts": { "test": "bun test" },\n  "dependencies": { "yargs": "^18.0.0" }\n}\n' },
+});
+back("project: an ordinary package.json in the directory above", ["usage"], PROJECT, { setup: ['printf \'{"name":"above"}\' > ../package.json'] });
+back("project: a tsconfig.json as `tsc --init` writes it, with comments", ["ls"], PROJECT, {
+  mock: lsOnce,
+  files: { "tsconfig.json": '{\n  // Visit https://aka.ms/tsconfig to read more about this file\n  "compilerOptions": {\n    "target": "es2022", /* comment */\n    "strict": true,\n  }\n}\n' },
+});
+back("project: a tsconfig.json in the directory above", ["usage"], PROJECT, { setup: ["printf '{}' > ../tsconfig.json"] });
+back("project: a jsconfig.json in the directory above that does not parse", ["usage"], PROJECT, { setup: ["printf 'nope' > ../jsconfig.json"] });
+back("project: a tsconfig.json of no bytes", ["usage"], PROJECT, { files: { "tsconfig.json": "" } });
+back("project: a package.json with a type bun does not know", ["usage"], PROJECT, { files: { "package.json": '{"type":"weird"}' } });
+back("project: a package.json with a key twice", ["usage"], PROJECT, { files: { "package.json": '{"name":"a","name":"b"}' } });
+back("project: a package.json with exports bun warns about", ["ls"], PROJECT, { mock: lsOnce, files: { "package.json": '{"exports":{"x":"y","./z":"w"}}' } });
+back("project: a tsconfig.json that extends a file that does not parse", ["usage"], PROJECT, { files: { "tsconfig.json": '{"extends":"./base.json"}', "base.json": "{ bad" } });
+back("project: package.json is a link to nowhere", ["usage"], PROJECT, { setup: ["ln -s /nonexistent/package.json package.json"] });
+back("project: package.json is a directory", ["usage"], PROJECT, { setup: ["mkdir package.json"] });
+add("project: files of other names are not read", ["ls"], {
+  mock: lsOnce,
+  files: { "package.json5": "{ bad", "package-lock.json": "{ bad", "bun.lock": "{ bad", "tsconfig.base.json": "{ bad", ".npmrc": "{ bad", "deno.json": "{ bad", "sub/package.json": "{ bad", "node_modules/x/package.json": "{ bad" },
+});
+
+// ── the zone ─────────────────────────────────────────────────────────────────
+// The call counter is kept per local day. bun takes the local day from the
+// zone data built into it, which is not the data in /usr/share/zoneinfo (for
+// America/Vancouver, bun 1.4.0 and tzdata 2026b are an hour apart). The
+// binary works the day out only for zones that are a fixed number of hours
+// from UTC by their name; a machine in any other zone is handed back.
+
+add("zone: Etc/GMT-14, where the day starts first", ["usage"], { env: { TZ: "Etc/GMT-14" }, home: { ".qqdocs/usage.json": usageAt(41) } });
+add("zone: Etc/GMT+12, where the day starts last", ["usage"], { env: { TZ: "Etc/GMT+12" }, home: { ".qqdocs/usage.json": usageAt(42) } });
+add("zone: Etc/UTC", ["usage"], { env: { TZ: "Etc/UTC" }, home: { ".qqdocs/usage.json": usageAt(43) } });
+add("zone: Etc/GMT-8, a call is counted on the local day and warned about", ["ls"], { mock: lsOnce, env: { TZ: "Etc/GMT-8" }, home: { ".qqdocs/usage.json": usageAt(79) } });
+add("zone: Etc/GMT+5, both calls of read are counted on the local day", ["read", ID], { mock: readMock(), env: { TZ: "Etc/GMT+5" }, home: { ".qqdocs/usage.json": usageAt(10) } });
+for (let hours = 1; hours <= 14; hours++) {
+  add(`zone: Etc/GMT-${hours}, the day of a calibration`, ["usage", "calibrate", "--today", String(hours)], { env: { TZ: `Etc/GMT-${hours}` } });
+  if (hours <= 12) add(`zone: Etc/GMT+${hours}, the day of a calibration`, ["usage", "calibrate", "--today", String(hours)], { env: { TZ: `Etc/GMT+${hours}` } });
+}
+for (const zone of ["Asia/Shanghai", "America/Vancouver", "America/New_York", "Europe/Berlin", "Asia/Kathmandu"]) {
+  back(`zone: ${zone}, usage`, ["usage"], ZONE, { env: { TZ: zone }, home: { ".qqdocs/usage.json": usageAt(7) } });
+}
+back("zone: America/Vancouver, a call", ["ls"], ZONE, { mock: lsOnce, env: { TZ: "America/Vancouver" }, home: { ".qqdocs/usage.json": usageAt(7) } });
+back("zone: Asia/Shanghai, tools", ["tools"], ZONE, { mock: tools(toolList), env: { TZ: "Asia/Shanghai" } });
+for (const zone of ["Etc/GMT", "Etc/GMT+0", "Etc/GMT-0", "Etc/GMT0", "Etc/GMT+13", "Etc/GMT-15", "Etc/GMT+01", "GMT", "UCT", "Etc/Universal", "Zulu", "utc", "UTC0", "UTC+8", "+08:00", " UTC", ""]) {
+  back(`zone: TZ=${JSON.stringify(zone)} is not one of the names taken`, ["usage", "calibrate", "--today", "2"], ZONE, { env: { TZ: zone } });
+}
+
+// ── the cases of the verification ────────────────────────────────────────────
+{
+  const add = (name, args, o = {}) => cases.push(make(`x ${name}`, args, o));
+  const back = (name, args, why, o = {}) => cases.push(make(`x ${name}`, args, { ...o, handback: why }));
+  const late = (name, args, why, o = {}) => cases.push(make(`x ${name}`, args, { ...o, handback: why, late: true }));
+
+  const planA = { file_id: "dFzLAbBjFuBr", file_name: "Plan A", file_url: "https://docs.qq.com/doc/DZEZ6TEFiQmpGdUJy" };
+  const budget = { file_id: "sheetBudget01", file_name: "预算 2026", file_url: "https://docs.qq.com/sheet/DSheetBudget01" };
+  const recent = (files) => rule("manage.recent_online_file", ok({ files }));
+  const usageAt = (today, more = "") => `{"daily":{"@TODAY@":${today}},"monthly":{"@MONTH@":${today}}${more}}`;
+  const tools = (list) => mock(listRule({ result: { tools: list } }));
+  const searchHits = (list, where) => rule("manage.search_file", ok({ list }), where);
+  const infoOf = (id, info) => rule("manage.query_file_info", ok(info), { file_id: id });
+  const folderList = (answer, where) => rule("manage.folder_list", ok(answer), where);
+
+  // ── arguments yargs might read differently ───────────────────────────────────
+  const someTools = [{ name: "completion", description: "completion usage true 0 null" }, { name: "other", description: "Other I thing" }];
+  for (const word of ["completion", "0", "true", "false", "null", "undefined", "__proto__", "constructor", "1e3", "007", "0x10", "-", "a=b", "--", "—json", "@file", "%s", "$HOME", "~", "*", "\\", "a b  c", "\ta\t", "I"]) {
+    if (word === "-" || word === "--") continue;
+    add(`tools: the pattern ${JSON.stringify(word)}`, ["tools", word], { mock: tools(someTools) });
+  }
+  add('tools: a pattern in double quotes', ["tools", '"other"'], { mock: tools([...someTools, { name: 'q', description: 'say "other" twice' }]) });
+  add("tools: a pattern in single quotes", ["tools", "'other'"], { mock: tools([...someTools, { name: "q", description: "say 'other' twice" }]) });
+  add("tools: a pattern that is blanks only matches everything", ["tools", " \t "], { mock: tools(someTools) });
+  add("tools: a pattern with a line break in it", ["tools", "a\nb"], { mock: tools(someTools) });
+  add("tools: white space JavaScript knows and white space it does not, in a description", ["tools"], {
+    mock: tools([
+      { name: "nbsp", description: "a  b　c d e﻿f g h i j" },
+      { name: "not-space", description: "a\u0085b᠎c​d\u001ce\u001ff" },
+      { name: "edges", description: " ﻿　 padded   " },
+      { name: "empty", description: "" },
+      { name: "blank", description: " \n\t " },
+    ]),
+  });
+  add("tools: descriptions of exactly 100, 101 and 103 units with pairs before the cut", ["tools"], {
+    mock: tools([
+      { name: "a", description: `${"😀".repeat(48)}xyzw` },
+      { name: "b", description: `${"😀".repeat(48)}xyzwv` },
+      { name: "c", description: `${"😀".repeat(48)}x${"y".repeat(6)}` },
+      { name: "d", description: `${"x".repeat(95)}😀${"y".repeat(10)}` },
+    ]),
+  });
+  add("tools: names and descriptions spelled with escapes, numbers spelled oddly", ["tools"], {
+    mock: mock(listRule(rawResult('{"tools":[{"name":"a\\u0041\\ud83d\\ude00\\/","description":"x\\/y\\u00e9\\t\\u0020z"},{"name":1.50,"description":"n"},{"name":1e21},{"name":-0},{"name":1E2},{"name":0.000001},{"name":1e-7},{"name":false,"name":"last wins"}]}'))),
+  });
+  add("tools: a pattern with a capital I under a Turkish locale", ["tools", "I"], { mock: tools(someTools), env: { LC_ALL: "tr_TR.UTF-8", LANG: "tr_TR.UTF-8" } });
+  add("tools: FORCE_COLOR and NO_COLOR are set", ["tools"], { mock: tools(someTools), env: { FORCE_COLOR: "1", TERM: "xterm-256color", COLORTERM: "truecolor" } });
+  add("tools: answered with HTTP 201", ["tools"], { mock: mock(listRule(rawResult('{"tools":[{"name":"t"}]}', 201))) });
+  add("tools: answered with HTTP 299", ["tools"], { mock: mock(listRule(rawResult('{"tools":[{"name":"t"}]}', 299))) });
+  add("tools: an `error` of 0, false or an empty string is no error", ["tools"], { mock: mock(listRule(raw('{"error":0,"result":{"tools":[{"name":"zero"}]}}'))) });
+  add("tools: an `error` that is an empty string", ["tools"], { mock: mock(listRule(raw('{"result":{"tools":[{"name":"empty"}]},"error":""}'))) });
+  late("tools: an `error` that is an empty object", ["tools"], REPORTED, { mock: mock(listRule(raw('{"error":{},"result":{"tools":[{"name":"x"}]}}'))) });
+  add("tools: the answer has `result` twice", ["tools"], { mock: mock(listRule(raw('{"result":{"tools":[{"name":"first"}]},"result":{"tools":[{"name":"second"}]}}'))) });
+  add("tools: a body with a JSON answer and no content type", ["tools"], { mock: mock(listRule({ status: 200, body: ' \n{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"plain"}]}}\r\n\t ' })) });
+  late("tools: a body that starts with a byte order mark", ["tools"], "res.text() has its own rule for it", { mock: mock(listRule({ status: 200, body: '﻿{"result":{"tools":[{"name":"bom"}]}}' })) });
+  late("tools: an answer nested 300 deep", ["tools"], "left to the JavaScript", { mock: mock(listRule(raw(`{"result":{"tools":[{"name":"deep","x":${"[".repeat(300)}${"]".repeat(300)}}]}}`))) });
+  late("tools: an answer with a __proto__ key", ["tools"], "left to the JavaScript", { mock: mock(listRule(raw('{"result":{"tools":[{"name":"p","__proto__":{"description":"inherited"}}]}}'))) });
+
+  // search
+  for (const word of ["completion", "true", "null", "0", "__proto__", "1e3", "007", "-", "—json", " ", "a=b"]) {
+    if (word === "-") continue;
+    add(`search: the query ${JSON.stringify(word)}`, ["search", word], { mock: mock(searchHits([])) });
+  }
+  add("search: a query in double quotes", ["search", '"Plan A"'], { mock: mock(searchHits([planA])) });
+  add("search: a query in single quotes", ["search", "'Plan A'"], { mock: mock(searchHits([planA])) });
+  add("search: a query with quotes, a backslash, control characters and separators", ["search", 'a"b\\c\u0001\u007f  \t\n\r/😀é'], { mock: mock(searchHits([])) });
+  add("search: --json before the query", ["search", "--json", "Plan"], { mock: mock(searchHits([planA])) });
+  add("search: titles and addresses that are empty, null or missing", ["search", "x"], {
+    mock: mock(searchHits([{ title: "", file_name: "ignored", url: "", file_url: "ignored" }, { title: null, file_name: null, url: null, file_url: null }, { title: 0, url: false }, "text", 5, [], {}])),
+  });
+  add("search: --json of a list spelled with escapes and odd numbers", ["search", "x", "--json"], {
+    mock: mock(rule("manage.search_file", rawStructured('{"list":[{"3":1,"1":2,"z":1.0,"a":[],"o":{},"n":[[]],"e":"\\u00e9\\ud83d\\ude00\\u2028\\u007f\\u0000","big":123456789012345678901234567890,"small":0.00000012,"neg":-1.5e-10,"inf":1e999}]}'))),
+  });
+  add("search: an answer as content text with escapes inside escapes", ["search", "x", "--json"], {
+    mock: mock(rule("manage.search_file", rawResult('{"content":[{"type":"text","text":"{\\"list\\":[{\\"title\\":\\"a\\\\nb\\\\u00e9\\",\\"n\\":1.0}]}"}]}'))),
+  });
+  add("search: the query usage, with the day nearly used up", ["search", "usage"], { mock: mock(searchHits([planA])), home: { ".qqdocs/usage.json": usageAt(98) } });
+  add("search: --json with the day nearly used up", ["search", "x", "--json"], { mock: mock(searchHits([planA])), home: { ".qqdocs/usage.json": usageAt(98) } });
+
+  // ls
+  add("ls: a folder whose name is a number", ["ls", "123"], {
+    mock: mock([rule("manage.folder_list", ok({ list: [] }), { folder_id: "f123" }), folderList({ list: [{ id: "f123", is_folder: true, title: "123", url: "u" }, { id: "n", is_folder: true, title: 123, url: "u" }] })]),
+  });
+  for (const word of ["true", "0", "1e3", "007", "completion", "ROOT", "Root", " root ", " ", "1234567890", "12345678901234567890", "abcdefghi", "abcdefghij/"]) {
+    add(`ls: the folder ${JSON.stringify(word)}`, ["ls", word], {
+      mock: mock([rule("manage.folder_list", ok({ list: [{ id: "inner", is_folder: false, title: "Inner", url: "https://docs.qq.com/doc/inner" }] }), { folder_id: "target0001" }), folderList({ list: [{ id: "target0001", is_folder: true, title: word.trim().replace(/\/$/, ""), url: "u" }] })]),
+    });
+  }
+  add("ls: the largest count and page it takes", ["ls", "-n", "999999999", "-p", "999999999"], { mock: mock(recent([planA])) });
+  add("ls: a count of zero", ["ls", "--count=0", "--json"], { mock: mock(recent([planA])) });
+  add("ls: -d before -n, then --json last", ["ls", "-d", "-n", "3", "--json"], { mock: mock(recent([planA])) });
+  add("ls: names with brackets, line breaks and a carriage return", ["ls"], {
+    mock: mock(recent([{ file_id: "a", file_name: "a](b)[c", file_url: "https://docs.qq.com/doc/a)b" }, { file_id: "b", file_name: "two\nlines\r", file_url: "//docs.qq.com/sheet/x" }, { file_id: "c", file_name: "%s %d %%", file_url: "https://docs.qq.com/smartsheet/sheet/slide/" }])),
+  });
+  add("ls: --json when `files` is 0, false or text", ["ls", "--json"], { mock: mock(rule("manage.recent_online_file", ok({ files: 0, file: [planA] }))) });
+  add("ls: --json when `files` is false", ["ls", "--json"], { mock: mock(rule("manage.recent_online_file", ok({ files: false }))) });
+  add("ls: --json of a folder whose list is text", ["ls", "root", "--json"], { mock: mock(folderList({ list: "abc" })) });
+  add("ls: a folder whose `finish` is 0", ["ls", "root"], { mock: mock(folderList({ list: [{ id: "a", title: "A", url: "//docs.qq.com/doc/a" }], finish: 0 })) });
+  add("ls: a folder whose `finish` is the text false", ["ls", "root"], { mock: mock(folderList({ list: [{ id: "a", title: "A", url: "//docs.qq.com/doc/a" }], finish: "false" })) });
+  add("ls: a folder whose `finish` is an empty text", ["ls", "root"], { mock: mock(folderList({ list: [{ id: "a", title: "A", url: "//docs.qq.com/doc/a" }], finish: "" })) });
+  add("ls: a folder of folders with --dates asks nothing more", ["ls", "root", "-d"], { mock: mock(folderList({ list: [{ id: "a", is_folder: true, title: "A", url: "//x" }, { id: "b", is_folder: "yes", title: "B", url: "" }] })) });
+  add("ls: a folder and a document share an id, with --dates", ["ls", "root", "--dates"], {
+    mock: mock([folderList({ list: [{ id: "same000001", is_folder: true, title: "Folder", url: "//x" }, { id: "same000001", is_folder: false, title: "Doc", url: "//docs.qq.com/pdf/y" }] }), infoOf("same000001", { last_modify_time: 1500000000000 })]),
+  });
+  add("ls: --dates with times that are fractions, text of digits and very old", ["ls", "--dates"], {
+    mock: mock(
+      [
+        recent([planA, budget, { file_id: "third0000001", file_name: "Third", file_url: "https://docs.qq.com/slide/D3" }, { file_id: "fourth000001", file_name: "Fourth", file_url: "https://docs.qq.com/doc/D4" }]),
+        rule("manage.query_file_info", rawStructured('{"last_modify_time":1700000000000.9}'), { file_id: planA.file_id }),
+        infoOf(budget.file_id, { last_modify_time: "0" }),
+        rule("manage.query_file_info", rawStructured('{"last_modify_time":-62167219200000}'), { file_id: "third0000001" }),
+        rule("manage.query_file_info", rawStructured('{"last_modify_time":1.7e12}'), { file_id: "fourth000001" }),
+      ],
+      [1, 4],
+    ),
+  });
+  add("ls: --dates with the last moment of the year 9999 and text with leading zeros", ["ls", "--dates"], {
+    mock: mock([recent([planA, budget]), infoOf(planA.file_id, { last_modify_time: -1 }), infoOf(budget.file_id, { last_modify_time: "000001600000000" })], [1, 2]),
+  });
+  late("ls: --dates with a time before the year 0", ["ls", "--dates"], "JavaScript's own date text", { mock: mock([recent([planA]), infoOf(planA.file_id, { last_modify_time: -62167219200001 })]) });
+  late("ls: --dates with a time that is true", ["ls", "--dates"], "JavaScript's own arithmetic", { mock: mock([recent([planA]), infoOf(planA.file_id, { last_modify_time: true })]) });
+  add("ls: --dates when the answer about a document is null or a number", ["ls", "--dates"], {
+    mock: mock([recent([planA, budget]), infoOf(planA.file_id, null), infoOf(budget.file_id, 5)], [1, 2]),
+  });
+  add("ls: FORCE_COLOR is set", ["ls"], { mock: mock(recent([planA])), env: { FORCE_COLOR: "3" } });
+  back("ls: a package.json and a tsconfig.json that do not parse, in the current directory", ["ls"], PROJECT, {
+    mock: mock(recent([planA])),
+    files: { "package.json": "{ this is not json", "tsconfig.json": "{ nor this", "jsconfig.json": "nope" },
+  });
+  add("ls: a node_modules with another yargs in the current directory", ["ls"], {
+    mock: mock(recent([planA])),
+    files: { "node_modules/yargs/package.json": '{"name":"yargs","version":"0.0.1","main":"index.js"}', "node_modules/yargs/index.js": "throw new Error('wrong yargs')" },
+  });
+
+  // read
+  const content = (id, c) => rule("get_content", ok({ content: c }), { file_id: id });
+  const docInfo = { file_id: "dFzLAbBjFuBr", title: "Plan A", url: "https://docs.qq.com/doc/DZEZ6TEFiQmpGdUJy" };
+  add("read: content with format marks, CRLF, a NUL and line separators", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "100%% %s %d %o %c %j\r\nsecond\u0000third fourth \n\n\n")], [2]),
+  });
+  add("read: empty content", ["read", "dFzLAbBjFuBr"], { mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "")], [2]) });
+  add("read: 50 000 characters of content", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "行 line 😀\n".repeat(5000))], [2]),
+  });
+  add("read: an address whose first part is empty is a title to search for", ["read", "https://docs.qq.com//doc/abc"], {
+    mock: mock([searchHits([{ file_id: "found00001", title: "whatever" }]), infoOf("found00001", docInfo), content("found00001", "found")], [1, 2]),
+  });
+  add("read: a title that is a number and an address that is true", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", { title: 12.5, url: true }), content("dFzLAbBjFuBr", "x")], [2]),
+  });
+  add("read: an empty title hides the file name", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", { title: "", file_name: "Hidden", url: "", file_url: "https://docs.qq.com/doc/x" }), content("dFzLAbBjFuBr", "x")], [2]),
+  });
+  add("read: information that is a list", ["read", "dFzLAbBjFuBr"], { mock: mock([infoOf("dFzLAbBjFuBr", ["a"]), content("dFzLAbBjFuBr", "x")], [2]) });
+  add("read: information that is text", ["read", "dFzLAbBjFuBr"], { mock: mock([infoOf("dFzLAbBjFuBr", "plain"), content("dFzLAbBjFuBr", "x")], [2]) });
+  add("read: information that is null", ["read", "dFzLAbBjFuBr"], { mock: mock([infoOf("dFzLAbBjFuBr", null), content("dFzLAbBjFuBr", "x")], [2]) });
+  for (const [what, ref, id] of [
+    ["an address with a query and a fragment", "https://docs.qq.com/doc/DABCdef123?tab=x#h", "DABCdef123"],
+    ["an address of a kind it does not list", "https://docs.qq.com/desktop/Xy9", "Xy9"],
+    ["two addresses, the listed kind wins", "docs.qq.com/x/first docs.qq.com/aio/second", "second"],
+    ["an address without a scheme, in capitals after the host", "DOCS.QQ.COM docs.qq.com/SHEET/abc/def", "abc"],
+    ["an address inside other text", "see <https://docs.qq.com/smartsheet/Sm4rt-rest> please", "Sm4rt"],
+    ["an address with the host twice", "docs.qq.com/docs.qq.com/doc/Zz1", "Zz1"],
+    ["an address with a line break in the first part", "docs.qq.com/a\nb/Id7", "Id7"],
+    ["an id of exactly ten characters with blanks around", "  abcdefghi0 \t", "abcdefghi0"],
+  ]) {
+    add(`read: ${what}`, ["read", ref], { mock: mock([infoOf(id, { title: `T ${id}`, url: `https://docs.qq.com/doc/${id}` }), content(id, `content of ${id}`)], [2]) });
+  }
+  add("read: nine characters are a title to search for", ["read", "abcdefghi"], {
+    mock: mock([searchHits([{ file_id: "found00001", file_name: "abcdefghi" }, { file_id: "other00002", title: "abcdefghi2" }]), infoOf("found00001", docInfo), content("found00001", "found")], [1, 2]),
+  });
+  add("read: an address with nothing usable is a title to search for", ["read", "https://docs.qq.com/doc/"], {
+    mock: mock([searchHits([{ file_id: "found00001", title: "whatever" }]), infoOf("found00001", docInfo), content("found00001", "found")], [1, 2]),
+  });
+  add("read: a title that only `title` matches exactly, among several", ["read", " Plan B "], {
+    mock: mock([searchHits([{ file_id: "a000000001", file_name: "Plan B draft" }, { file_id: "b000000002", file_name: null, title: "Plan B" }, { file_id: "c000000003", file_name: "plan b" }]), infoOf("b000000002", docInfo), content("b000000002", "b")], [1, 2]),
+  });
+  late("read: a title that two results have", ["read", "Twin"], REPORTED, { mock: mock(searchHits([{ file_id: "a000000001", file_name: "Twin" }, { file_id: "b000000002", title: "Twin" }])) });
+  back("read: an address whose id is valueOf", ["read", "https://docs.qq.com/doc/valueOf"], "a name every JavaScript object has", {
+    mock: mock([infoOf("valueOf", docInfo), content("valueOf", "x")], [2]),
+  });
+  late("read: a search result whose id is constructor", ["read", "Odd"], "a name every JavaScript object has", {
+    mock: mock([searchHits([{ file_id: "constructor", file_name: "Odd" }]), infoOf("constructor", docInfo), content("constructor", "x")], [1, 2]),
+  });
+  const cacheOf = (entries) => JSON.stringify(entries);
+  add("read: from the cache, remembered a minute in the future", ["read", "dFzLAbBjFuBr"], {
+    home: { ".qqdocs/doc-cache.json": '{"dFzLAbBjFuBr":{"content":"cached text","info":{"title":"Cached","url":"u"},"cachedAt":@MS--60000@}}'.replace("@MS--60000@", "@MS-0@") },
+  });
+  add("read: from the cache, information that is null, text or without a title", ["read", "dFzLAbBjFuBr"], {
+    home: { ".qqdocs/doc-cache.json": '{"zzzz":{"content":"other","info":"text","cachedAt":@MS-1000@},"dFzLAbBjFuBr":{"cachedAt":@MS-200000@,"info":null,"content":""}}' },
+  });
+  add("read: from the cache, a title that is a number", ["read", "dFzLAbBjFuBr"], {
+    home: { ".qqdocs/doc-cache.json": '{"dFzLAbBjFuBr":{"content":"c","info":{"title":7,"file_name":"n","url":null,"file_url":"https://docs.qq.com/doc/x"},"cachedAt":@MS-1000@.5}}' },
+  });
+  add("read: a cache with ids that are numbers, stale and fresh entries, and other values", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "fresh")], [2]),
+    home: {
+      ".qqdocs/doc-cache.json":
+        '{"zeta":{"content":"z","info":null,"cachedAt":@MS-1000@},"4294967295":{"content":"n","info":null,"cachedAt":@MS-2000@},"10":{"content":"ten","info":{},"cachedAt":@MS-3000@},"2":{"content":"two","info":{},"cachedAt":@MS-400000@},"dFzLAbBjFuBr":{"content":"old","info":{},"cachedAt":@MS-400000@},"alpha":{"content":"a","info":[1],"cachedAt":@MS-5000@},"n":5,"s":"text","f":false,"l":[1],"nocachedat":{"content":"x"}}',
+    },
+  });
+  add("read: the id is a number, so it is first in the cache file", ["read", "1234567890"], {
+    mock: mock([infoOf("1234567890", docInfo), content("1234567890", "numbered")], [2]),
+    home: { ".qqdocs/doc-cache.json": '{"zeta":{"content":"z","info":null,"cachedAt":@MS-1000@},"4294967294":{"content":"n","info":null,"cachedAt":@MS-2000@}}' },
+  });
+  add("read: a cache file that starts with a byte order mark is not JSON", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "fresh")], [2]),
+    home: { ".qqdocs/doc-cache.json": '﻿{"dFzLAbBjFuBr":{"content":"bom","info":null,"cachedAt":@MS-1000@}}' },
+  });
+  add("read: an empty cache file", ["read", "dFzLAbBjFuBr"], { mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "fresh")], [2]), home: { ".qqdocs/doc-cache.json": "" } });
+  add("read: a cache entry that is false is replaced where it stands", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "fresh")], [2]),
+    home: { ".qqdocs/doc-cache.json": '{"a":{"content":"a","info":null,"cachedAt":@MS-1000@},"dFzLAbBjFuBr":false,"b":{"content":"b","info":null,"cachedAt":@MS-1000@}}' },
+  });
+  add("read: a cache with a null entry is left as it is", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "fresh")], [2]),
+    home: { ".qqdocs/doc-cache.json": '{"a":{"content":"a","info":null,"cachedAt":@MS-400000@},"gone":null}' },
+  });
+  late("read: a cache that is a list", ["read", "dFzLAbBjFuBr"], "not what the program writes", {
+    mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "fresh")], [2]),
+    home: { ".qqdocs/doc-cache.json": "[]" },
+  });
+  add("read: the two calls take the day to 80%", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "x")], [2]),
+    home: { ".qqdocs/usage.json": usageAt(78) },
+  });
+  add("read: by title, three calls take the day to 95%", ["read", "Plan"], {
+    mock: mock([searchHits([planA]), infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "x")], [1, 2]),
+    home: { ".qqdocs/usage.json": usageAt(92) },
+  });
+  add("read: a counter lock left behind long ago is removed", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "x")], [2]),
+    setup: ["touch -d '1 minute ago' <HOME>/.qqdocs/usage.json.lock"],
+  });
+
+  // info, perm get
+  add("info: every kind of value, keys that are numbers", ["info", "dFzLAbBjFuBr"], {
+    mock: mock(rule("manage.query_file_info", rawStructured('{"z":"last?","10":"ten","2":"two","empty":"","nul":null,"no":false,"zero":0,"negzero":-0,"f":1.50,"big":1e21,"tiny":1e-7,"list":[1,"a",null,{"k":[]}],"obj":{"b":1,"1":2},"text":" padded ","uni":"\\u00e9😀\\u2028","01":"not a number key","z":"z again"}'))),
+  });
+  add("info: --json before the reference, by title", ["info", "--json", "Plan"], { mock: mock([searchHits([planA]), infoOf("dFzLAbBjFuBr", docInfo)]) });
+  add("info: an answer that is text, with --json", ["info", "dFzLAbBjFuBr", "--json"], { mock: mock(rule("manage.query_file_info", ok("just text"))) });
+  add("info: an answer that is null, with --json", ["info", "dFzLAbBjFuBr", "--json"], { mock: mock(rule("manage.query_file_info", ok(null))) });
+  late("info: an answer that is a list", ["info", "dFzLAbBjFuBr"], "JavaScript's own listing of a list", { mock: mock(rule("manage.query_file_info", ok(["a", "b"]))) });
+  add("info: the reference usage", ["info", "usage"], { mock: mock([searchHits([planA]), infoOf("dFzLAbBjFuBr", docInfo)]), home: { ".qqdocs/usage.json": usageAt(97) } });
+  for (const [what, policy] of [["the text 3", '"3"'], ["2.0", "2.0"], ["1e0", "1e0"], ["-0", "-0"], ["4", "4"], ["null", "null"], ["true", "true"], ["the text link-read", '"link-read"'], ["0.5", "0.5"]]) {
+    add(`perm get: a policy of ${what}`, ["perm", "get", "dFzLAbBjFuBr"], { mock: mock(rule("manage.get_privilege", rawStructured(`{"file_id":"dFzLAbBjFuBr","policy":${policy},"trace_id":"t1"}`))) });
+  }
+  add("perm get: no policy in the answer", ["perm", "get", "dFzLAbBjFuBr"], { mock: mock(rule("manage.get_privilege", ok({ "5": "five", file_id: "dFzLAbBjFuBr", trace_id: "" }))) });
+  add("perm get: the reference get", ["perm", "get", "get"], { mock: mock([searchHits([planA]), rule("manage.get_privilege", ok({ policy: 3 }))]) });
+  late("perm get: a policy that is a list", ["perm", "get", "dFzLAbBjFuBr"], "JavaScript's own text for a list", { mock: mock(rule("manage.get_privilege", ok({ policy: [2] }))) });
+
+  // space
+  add("space list: every option at once, = forms", ["space", "list", "--page=3", "--scope=joined", "--order=edited", "--asc"], { mock: mock(rule("query_space_list", ok({ spaces: [] }))) });
+  add("space list: -p and the options in another order", ["space", "list", "--asc", "--order", "preview", "-p", "0", "--scope", "all"], { mock: mock(rule("query_space_list", ok({ spaces: [] }))) });
+  add("space list: odd values in every field", ["space", "list"], {
+    mock: mock(
+      rule(
+        "query_space_list",
+        rawStructured(
+          '{"spaces":[{"title":"A","space_id":"s1","policy":2.0,"file_cnt":0,"member_cnt":null,"is_owner":"no"},{"title":null,"space_id":7,"policy":"2","file_cnt":"many","member_cnt":1.5,"is_owner":0},{"policy":-0,"file_cnt":false,"member_cnt":"","is_owner":[]},{"title":"空间 😀","space_id":"s4","policy":1e0,"file_cnt":1e21,"member_cnt":-1,"is_owner":{}},{"policy":7},"text",5],"has_next":"yes"}',
+        ),
+      ),
+    ),
+  });
+  add("space list: has_next of 1 with nothing listed is not mentioned", ["space", "list"], { mock: mock(rule("query_space_list", ok({ spaces: [], has_next: 1 }))) });
+  add("space ls: --parent, -p and the space last", ["space", "ls", "--parent", "0123", "-p", "2", "S1"], { mock: mock(rule("query_space_node", ok({ children: [] }))) });
+  add("space ls: a space that is a number, a parent named usage", ["space", "ls", "12345", "--parent=usage"], { mock: mock(rule("query_space_node", ok({ children: [] }))), home: { ".qqdocs/usage.json": usageAt(98) } });
+  add("space ls: a parent that is the word usage silences the quota warning", ["space", "ls", "S1", "--parent", "usage"], { mock: mock(rule("query_space_node", ok({ children: [] }))), home: { ".qqdocs/usage.json": usageAt(98) } });
+  add("space ls: kinds of every length, Chinese and pairs", ["space", "ls", "ls"], {
+    mock: mock(
+      rule(
+        "query_space_node",
+        ok({
+          children: [
+            { node_id: "n1", title: "F", node_type: "wiki_folder", has_child: 1, url: "" },
+            { node_id: "n2", title: "D", node_type: "wiki_file", doc_type: "", url: "https://docs.qq.com/doc/n2" },
+            { node_id: "n3", title: "D", node_type: "wiki_file", doc_type: "smartcanvas-long-kind", has_child: "yes" },
+            { node_id: "n4", title: null, node_type: "链接类型", url: 0 },
+            { node_id: 5, node_type: "😀😀😀😀", url: 12.5 },
+            { node_type: "exactly-10", has_child: {} },
+            { node_type: "", title: "" },
+            { node_id: "n8", title: "D", node_type: "wiki_file", doc_type: null },
+          ],
+          has_next: {},
+        }),
+      ),
+    ),
+  });
+  late("space ls: a kind that is a number", ["space", "ls", "S1"], REPORTED, { mock: mock(rule("query_space_node", ok({ children: [{ node_id: "n", node_type: 5 }] }))) });
+
+  // canvas
+  add("canvas read: every option, = forms", ["canvas", "read", "dFzLAbBjFuBr", "--page=0", "--size=0", "--next=007"], { mock: mock(rule("smartcanvas.read", ok({ content: "<p>x</p>", next_token: 0 }))) });
+  add("canvas read: --all leaves --next out and keeps --page and --size", ["canvas", "read", "--all", "--next", "ignored", "--size", "2", "--page", "P1", "dFzLAbBjFuBr"], {
+    mock: mock(rule("smartcanvas.read", [ok({ content: "one", next_token: "t1" }), ok({ content: "two", next_token: "" })])),
+  });
+  add("canvas read: --all stops after a hundred pages", ["canvas", "read", "dFzLAbBjFuBr", "--all"], { mock: mock(rule("smartcanvas.read", ok({ content: "p\n", next_token: "again" }))), timeout: 300 });
+  add("canvas read: a next token that is a number, content with format marks", ["canvas", "read", "dFzLAbBjFuBr"], { mock: mock(rule("smartcanvas.read", ok({ content: "%s %% %d\r\n", next_token: 12.5 }))) });
+  add("canvas read: --all, an `error` that is 0 and content that is missing", ["canvas", "read", "dFzLAbBjFuBr", "--all"], { mock: mock(rule("smartcanvas.read", [ok({ error: 0, next_token: "t" }), ok({ error: "", content: "end" })])) });
+  late("canvas read: --all, content that is false", ["canvas", "read", "dFzLAbBjFuBr", "--all"], "only text is joined here", { mock: mock(rule("smartcanvas.read", ok({ content: false }))) });
+  add("canvas read: --page usage silences the quota warning", ["canvas", "read", "dFzLAbBjFuBr", "--page", "usage"], { mock: mock(rule("smartcanvas.read", ok({ content: "x" }))), home: { ".qqdocs/usage.json": usageAt(98) } });
+  add("canvas find: ids that are not text, content with format marks, a query named find", ["canvas", "find", "read", "find"], {
+    mock: mock([searchHits([planA]), rule("smartcanvas.find", ok({ blocks: [{ id: 1.5, content: "%s %%" }, { content: "" }, { id: null, content: "last\n" }, { id: "nocontent" }] }))]),
+  });
+  late("canvas find: content that is null", ["canvas", "find", "dFzLAbBjFuBr", "q"], "console.log's own text for it", { mock: mock(rule("smartcanvas.find", ok({ blocks: [{ id: "a", content: null }] }))) });
+
+  // raw
+  add("raw: arguments spelled oddly are sent the JavaScript way", ["raw", "get_content", "--json", ' {"b":1.0,"10":"x","2":[1.50,-0,1e21,1E-7,0.1e1],"a":{"z":null,"y":true},"u":"\\u00e9\\ud83d\\ude00\\/\\u0001\\u007f\\u2028","b":2,"inf":1e999,"neg":-1e999} '], {
+    mock: mock(rule("get_content", ok({ content: "c" }))),
+  });
+  add("raw: --json= with equals signs inside", ["raw", "manage.search_file", '--json={"search_key":"a=b==c"}'], { mock: mock(rule("manage.search_file", ok({ list: [] }))) });
+  add("raw: an answer that is text, a number, null, a list", ["raw", "smartcanvas.find"], { mock: mock(rule("smartcanvas.find", ok("just text\n"))) });
+  add("raw: an answer that is null", ["raw", "query_space_list"], { mock: mock(rule("query_space_list", ok(null))) });
+  add("raw: an answer that is a number spelled 1.0e2", ["raw", "query_space_node"], { mock: mock(rule("query_space_node", rawStructured("1.0e2"))) });
+  add("raw: an answer in content text, nested and empty things", ["raw", "manage.import_progress", "--json", '{"task_id":"t"}'], {
+    mock: mock(rule("manage.import_progress", text('{"progress":100,"a":[],"o":{},"n":[[],{}],"s":"","deep":{"x":{"y":[1,[2,[3]]]}}}'))),
+  });
+  add("raw: the day nearly used up", ["raw", "manage.query_folder_meta", "--json", '{"folder_id":"usage"}'], { mock: mock(rule("manage.query_folder_meta", ok({ folder: {} }))), home: { ".qqdocs/usage.json": usageAt(94) } });
+  back("raw: JSON that is a list", ["raw", "get_content", "--json", "[]"], REPORTED, {});
+  back("raw: JSON with a __proto__ key", ["raw", "get_content", "--json", '{"__proto__":{"a":1},"file_id":"x"}'], "left to the JavaScript", { mock: mock(rule("get_content", ok({ content: "c" }))) });
+  back("raw: a tool in capitals", ["raw", "GET_CONTENT"], "not on the list of tools that read", { mock: mock(rule("GET_CONTENT", ok({}))) });
+  back("raw: a tool with a blank after it", ["raw", "get_content "], "not on the list of tools that read", { mock: mock(rule("get_content ", ok({}))) });
+
+  // sync
+  add("sync: the home directory has a blank and Chinese in its name", ["sync"], {
+    mock: mock([recent([planA]), folderList({ list: [] })], [2]),
+    env: { HOME: "<HOME>/my home/家" },
+    setup: ["mkdir -p '<HOME>/my home/家/.qqdocs'"],
+  });
+  add("sync: ids, titles and addresses of every kind", ["sync"], {
+    mock: mock(
+      [
+        recent([{ file_id: "a", file_name: null }, { file_id: "", file_name: 5, file_url: ["u"] }, { file_id: "a", file_name: "again" }, { file_id: "10", file_url: { k: 1 } }]),
+        folderList({ list: [{ id: "", is_folder: 0, title: "empty id again", url: "//x" }, { id: "b", is_folder: "", url: "//" }, { id: "c", is_folder: [], url: 5 }, { id: "d", title: { t: 1 }, url: "///x" }] }),
+      ],
+      [2],
+    ),
+  });
+  add("sync: both calls take the day to 80%", ["sync"], { mock: mock([recent([planA]), folderList({ list: [] })], [2]), home: { ".qqdocs/usage.json": usageAt(78) } });
+  back("sync: ~/.qqdocs is a file", ["sync"], "left to the JavaScript", { mock: mock([recent([planA]), folderList({ list: [] })], [2]), firstRun: true, setup: ["printf x > <HOME>/.qqdocs"] });
+
+  // usage and calibrate: the counter file
+  add("usage: a counter file that starts with a byte order mark counts as empty", ["usage"], { home: { ".qqdocs/usage.json": `﻿${usageAt(44)}` } });
+  add("usage: a counter file with white space around and keys in another order", ["usage"], { home: { ".qqdocs/usage.json": ` \n{"inferredTier":null,"monthly":{"@MONTH@":2.5e1},"x":[1],"daily":{"@TODAY@":1e1}}\n\n` } });
+  add("usage: today is in the file twice", ["usage"], { home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":5,"@TODAY@":7},"monthly":{"@MONTH@":1},"daily":{"@TODAY@":9}}' } });
+  add("usage: counts of a half and of one below the next percent", ["usage"], { home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":0.5},"monthly":{"@MONTH@":99.99}}' } });
+  add("usage: counts that round at the half", ["usage", "--tier", "plus"], { home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":50},"monthly":{"@MONTH@":500}}' } });
+  add("usage: a huge count", ["usage"], { home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":1e21},"monthly":{"@MONTH@":123456789012345678901234567890}}' } });
+  add("usage: ~/.qqdocs is a file", ["usage"], { firstRun: true, setup: ["printf x > <HOME>/.qqdocs"] });
+  add("usage: the counter file is a directory", ["usage"], { setup: ["mkdir <HOME>/.qqdocs/usage.json"] });
+  add("usage: --tier=plus with the tier of config.yaml in the current directory and an inferred one", ["usage", "--tier=plus"], {
+    files: { ".qqdocs.config.yaml": "# 层级\n\ndefaultPerm: link-read\ntier: member\ndefaultSpace: 2026-01/x.y_z\n" },
+    home: { ".qqdocs/usage.json": usageAt(1500, ',"inferredTier":"member"'), ".qqdocs/config.yaml": "tier: free\n" },
+  });
+  add("usage: a config.yaml with keys YAML reads as other things", ["usage"], {
+    home: { ".qqdocs/config.yaml": "yes: no\nnull: null\ntrue: false\na1_b: 0x1F\nn: 1e3\nd: 2026-01-01\ntier: plus\nv: 1.2.3\np: a/b/c\nt: 12:30\n".replace("t: 12:30\n", ""), ".qqdocs/usage.json": usageAt(10) },
+  });
+  add("usage: a config.yaml that is only comments", ["usage"], { home: { ".qqdocs/config.yaml": "# nothing\n#\n# tier: plus\n" } });
+  back("usage: a config.yaml with a line of blanks", ["usage"], "left to the YAML parser", { home: { ".qqdocs/config.yaml": "tier: member\n  \n" } });
+  back("usage: a config.yaml with a tab after the colon", ["usage"], "left to the YAML parser", { home: { ".qqdocs/config.yaml": "tier:\tmember\n" } });
+  back("usage: a config.yaml in the current directory that is a dangling link is skipped by both, then an odd one in the home directory", ["usage"], "left to the YAML parser", {
+    setup: ["mkdir -p .qqdocs && ln -s /nonexistent/config.yaml .qqdocs/config.yaml"],
+    home: { ".qqdocs/config.yaml": "tier: 'plus'\n" },
+  });
+  add("usage: a dangling link for config.yaml in the current directory is skipped", ["usage"], {
+    setup: ["mkdir -p .qqdocs && ln -s /nonexistent/config.yaml .qqdocs/config.yaml"],
+    home: { ".qqdocs/config.yaml": "tier: plus\n" },
+  });
+  add("calibrate: = forms, all three", ["usage", "calibrate", "--today=5", "--tier=plus", "--month=7"], { home: { ".qqdocs/usage.json": usageAt(3) } });
+  add("calibrate: zero for both", ["usage", "calibrate", "--month", "0", "--today", "0"], { home: { ".qqdocs/usage.json": usageAt(30, ',"inferredTier":"plus"') } });
+  add("calibrate: the largest number it takes", ["usage", "calibrate", "--today", "999999999"], { home: { ".qqdocs/usage.json": usageAt(1) } });
+  add("calibrate: a file with other keys, days that are numbers and an order of its own", ["usage", "calibrate", "--today", "8"], {
+    home: { ".qqdocs/usage.json": '{"note":"kept","monthly":{"zz":1,"@MONTH@":40,"7":7},"inferredTier":null,"daily":{"2001-01-01":1,"20260101":2,"@TODAY@":10,"5":5,"":0},"last":true}' },
+  });
+  add("calibrate: fractions in the file", ["usage", "calibrate", "--today", "3"], { home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":2.5},"monthly":{"@MONTH@":0.25}}' } });
+  add("calibrate: a counter lock left behind long ago", ["usage", "calibrate", "--today", "3"], { setup: ["touch -d '1 minute ago' <HOME>/.qqdocs/usage.json.lock"] });
+  add("calibrate: a counter lock taken just now is waited for, then ignored and removed", ["usage", "calibrate", "--today", "3"], { setup: ["touch <HOME>/.qqdocs/usage.json.lock"] });
+  add("calibrate: a counter lock that is a directory", ["usage", "calibrate", "--today", "3"], { setup: ["mkdir <HOME>/.qqdocs/usage.json.lock"] });
+  back("calibrate: the counter file is a directory", ["usage", "calibrate", "--today", "3"], REPORTED, { setup: ["mkdir <HOME>/.qqdocs/usage.json"] });
+  back("calibrate: ~/.qqdocs is a file", ["usage", "calibrate", "--today", "3"], REPORTED, { firstRun: true, setup: ["printf x > <HOME>/.qqdocs"] });
+  add("search: a counter lock taken just now is waited for", ["search", "x"], { mock: mock(searchHits([])), setup: ["touch <HOME>/.qqdocs/usage.json.lock"], home: { ".qqdocs/usage.json": usageAt(4) } });
+  add("search: nine days and five months in the file, numbers among the keys", ["search", "x"], {
+    mock: mock(searchHits([])),
+    home: {
+      ".qqdocs/usage.json":
+        '{"daily":{"2001-01-09":1,"zz":"text","2001-01-01":2,"7":7,"2001-01-03":3,"":0,"2001-01-04":4,"10":10,"2001-01-05":5,"9999-99-99":{"a":1}},"monthly":{"2001-03":1,"1":1,"2001-01":2,"2001-02":3,"zz":null,"9999-99":[]},"other":{"kept":1}}',
+    },
+  });
+  add("search: the counter file is a directory", ["search", "x"], { mock: mock(searchHits([])), setup: ["mkdir <HOME>/.qqdocs/usage.json"] });
+  add("search: ~/.qqdocs is a file", ["search", "x"], { mock: mock(searchHits([])), firstRun: true, setup: ["printf x > <HOME>/.qqdocs"] });
+  add("search: the 1001st call of the day with a config tier of free", ["search", "x"], {
+    mock: mock(searchHits([])),
+    home: { ".qqdocs/usage.json": usageAt(1000), ".qqdocs.config.yaml": "tier: free\n" },
+  });
+  late("search: an inferred tier that does not exist", ["search", "x"], "a counter file of another shape", { mock: mock(searchHits([])), home: { ".qqdocs/usage.json": usageAt(90, ',"inferredTier":"gold"') } });
+
+  // the token: files bun loads, files the program loads
+  const lsOne = mock(recent([planA]));
+  const envCase = (name, files, o = {}) => add(`token: ${name}`, ["ls"], { mock: lsOne, env: { TENCENT_DOCS_TOKEN: null }, files, ...o });
+  const envBack = (name, files, why, o = {}) => back(`token: ${name}`, ["ls"], why, { mock: lsOne, env: { TENCENT_DOCS_TOKEN: null }, files, ...o });
+  envCase("a # right after the token in .env starts a comment", { ".env": "TENCENT_DOCS_TOKEN=fake-hash#rest\n" });
+  envCase("a backslash in an unquoted token in .env is kept", { ".env": "TENCENT_DOCS_TOKEN=fake-a\\nb\\\\c\\t\n" });
+  envCase(".env with Windows line ends", { ".env": "# c\r\nOTHER=1\r\nTENCENT_DOCS_TOKEN=fake-crlf\r\n\r\n" });
+  envCase(".env with equals signs in the token and no final line end", { ".env": "TENCENT_DOCS_TOKEN=fake-a=b==" });
+  envCase(".env with a token in single quotes that holds a # and blanks", { ".env": "TENCENT_DOCS_TOKEN='fake a # b'   # c\n" });
+  envCase(".env with a token in double quotes that holds a # and an equals sign", { ".env": 'TENCENT_DOCS_TOKEN="fake=a#b" #c\n' });
+  envCase(".env with tabs and blanks around the token", { ".env": "TENCENT_DOCS_TOKEN= \t fake-padded \t \n" });
+  envCase(".env with punctuation in the token", { ".env": "TENCENT_DOCS_TOKEN=fake-;{}[]!%&*|~^,.<>?/:@+()\n" });
+  envCase(".env with other variables that are not ASCII, and keys with digits and underscores", { ".env": "NAME=värde 值\n_X9=1\nA__=\nTENCENT_DOCS_TOKEN=fake-after-others\n" });
+  envCase(".env with a lower-case key is another variable", { ".env": "tencent_docs_token=fake-lower\n" }, { home: { ".qqdocs/.env.local": "TENCENT_DOCS_TOKEN=fake-from-home\n" } });
+  envCase("all four files, the strongest wins", {
+    ".env": "TENCENT_DOCS_TOKEN=fake-env\n",
+    ".env.development": "TENCENT_DOCS_TOKEN=fake-development\n",
+    ".env.local": "TENCENT_DOCS_TOKEN=fake-local\n",
+    ".env.development.local": "TENCENT_DOCS_TOKEN=fake-development-local\n",
+    ".env.production.local": "TENCENT_DOCS_TOKEN=fake-production-local\n",
+    ".env.test": "TENCENT_DOCS_TOKEN=fake-test\n",
+  });
+  envCase("the token only in .env.development, other things in the stronger files", {
+    ".env.development": "TENCENT_DOCS_TOKEN=fake-development\n",
+    ".env.local": "OTHER=1\n",
+    ".env.development.local": "# nothing\n",
+  });
+  envBack("empty in .env.local, set in .env", { ".env.local": "TENCENT_DOCS_TOKEN=\n", ".env": "TENCENT_DOCS_TOKEN=fake-weaker\n" }, "an empty token is the TypeScript's to report");
+  envBack("empty in .env, set in ~/.qqdocs/.env.local", { ".env": "TENCENT_DOCS_TOKEN=\n" }, "an empty token is the TypeScript's to report", { home: { ".qqdocs/.env.local": "TENCENT_DOCS_TOKEN=fake-from-home\n" } });
+  envBack(".env with a form feed in a value", { ".env": "OTHER=a\fb\nTENCENT_DOCS_TOKEN=fake-ff\n" }, "bun's own reading");
+  envBack(".env with a no-break space in a value", { ".env": "OTHER=a b\nTENCENT_DOCS_TOKEN=fake-nbsp\n" }, "bun's own reading");
+  envBack(".env with a line that is a blank and a comment", { ".env": "  # indented comment\nTENCENT_DOCS_TOKEN=fake-indent\n" }, "bun's own reading");
+  envBack(".env with text after a closing quote", { ".env": 'TENCENT_DOCS_TOKEN="fake-q"tail\n' }, "bun's own reading");
+  envBack(".env with a backtick", { ".env": "TENCENT_DOCS_TOKEN=`fake-tick`\n" }, "bun's own reading");
+  envBack(".env that is a directory", {}, "bun's own reading", { setup: ["mkdir .env"], env: { TENCENT_DOCS_TOKEN: TOKEN } });
+  envCase(".env.local that is a dangling link", {}, { setup: ["ln -s /nonexistent/env .env.local"], home: { ".qqdocs/.env.local": "TENCENT_DOCS_TOKEN=fake-from-home\n" } });
+  const homeEnv = (name, text, o = {}) => add(`token: ~/.qqdocs/.env.local ${name}`, ["ls"], { mock: lsOne, env: { TENCENT_DOCS_TOKEN: null }, home: { ".qqdocs/.env.local": text }, ...o });
+  homeEnv("with a byte order mark and Windows line ends", "﻿TENCENT_DOCS_TOKEN=fake-bom\r\nOTHER=1\r\n");
+  homeEnv("with blanks around the key and the value", " \t TENCENT_DOCS_TOKEN \t = \t fake-spaced \t \n");
+  homeEnv("with the token twice, the first wins", "X=1\nTENCENT_DOCS_TOKEN=fake-first\nTENCENT_DOCS_TOKEN=fake-second\n");
+  homeEnv("with export, a comment and a line starting with =, before the token", "export TENCENT_DOCS_TOKEN=fake-export\n#TENCENT_DOCS_TOKEN=fake-comment\n=fake-nokey\nTENCENT_DOCS_TOKEN#=fake-hash\nTENCENT_DOCS_TOKEN=fake-real=x # kept\n");
+  homeEnv("with a carriage return inside the token", "TENCENT_DOCS_TOKEN=fake-\rcr\r\n");
+  homeEnv("with no-break spaces around the token", " TENCENT_DOCS_TOKEN　= fake-nbsp﻿\n");
+  homeEnv("where a line separator ends the value's line", "TENCENT_DOCS_TOKEN=fake-ls rest\nTENCENT_DOCS_TOKEN=fake-second\n");
+  homeEnv("with a line separator before the key", " TENCENT_DOCS_TOKEN=fake-ls-key\n");
+  back("token: ~/.qqdocs/.env.local with a tab inside the token", ["ls"], "the runtime's header rules", { mock: lsOne, env: { TENCENT_DOCS_TOKEN: null }, home: { ".qqdocs/.env.local": "TENCENT_DOCS_TOKEN=fake\ttab\n" } });
+  add("token: an empty ~/.qqdocs/.env.local, the token in the environment", ["ls"], { mock: lsOne, home: { ".qqdocs/.env.local": "" } });
+
+  // the machine
+  add("machine: the home directory has a blank and Chinese in its name, calibrate", ["usage", "calibrate", "--today", "2"], { env: { HOME: "<HOME>/my home/家" }, setup: ["mkdir -p '<HOME>/my home/家'"] });
+  back("machine: HOME ends with a slash", ["usage"], "left to the JavaScript", { env: { HOME: "<HOME>/" }, home: { ".qqdocs/usage.json": usageAt(5) } });
+  back("machine: HOME has a .. in it", ["usage"], "left to the JavaScript", { env: { HOME: "<HOME>/x/.." }, setup: ["mkdir -p <HOME>/x"], home: { ".qqdocs/usage.json": usageAt(5) } });
+  back("machine: HOME is empty", ["usage"], "left to the JavaScript", { env: { HOME: "" }, noHome: true });
+  back("machine: .bunfig.toml in XDG_CONFIG_HOME", ["usage"], "bun reads it", { setup: ["mkdir -p <HOME>/.config && printf '' > <HOME>/.config/.bunfig.toml"] });
+  add("machine: bunfig.toml in the home directory without the dot is not read", ["usage"], { setup: ["printf 'preload = [\"./nope.ts\"]\\n' > <HOME>/bunfig.toml"] });
+  for (const zone of ["Etc/GMT+12", "Etc/GMT-14", "Etc/UTC"]) {
+    add(`machine: TZ=${zone}`, ["usage", "calibrate", "--today", "1"], { env: { TZ: zone } });
+  }
+  for (const zone of ["America/Argentina/Buenos_Aires", "Europe/London", "Asia/Kolkata", "Pacific/Chatham", "Antarctica/Troll", "America/St_Johns", "Australia/Lord_Howe"]) {
+    back(`machine: TZ=${zone}`, ["usage", "calibrate", "--today", "1"], ZONE, { env: { TZ: zone } });
+  }
+  // Names that are no zone file under /usr/share/zoneinfo on Linux.
+  for (const zone of ["Etc/Unknown", "America/Argentina", "asia/tokyo", "Asia/Tokyo/", "/usr/share/zoneinfo/Asia/Tokyo", "../zoneinfo/Asia/Tokyo"]) {
+    back(`machine: TZ=${zone}`, ["usage", "calibrate", "--today", "1"], ZONE, { env: { TZ: zone } });
+  }
+
+  // ── found by the verification: where the binary did not do what the TypeScript does ──
+
+  // yargs prints the command's help when the last word of the command line is `help`.
+  back("help: tools help", ["tools", "help"], HELP, { mock: tools([{ name: "help", description: "the help tool" }, { name: "other", description: "no" }]) });
+  back("help: search help", ["search", "help"], HELP, { mock: mock(searchHits([{ file_id: "h000000001", file_name: "help", file_url: "https://docs.qq.com/doc/h" }])) });
+  back("help: search help --json", ["search", "help", "--json"], HELP, { mock: mock(searchHits([planA])) });
+  back("help: search --json help", ["search", "--json", "help"], HELP, { mock: mock(searchHits([planA])) });
+  back("help: ls help", ["ls", "help"], HELP, {
+    mock: mock([rule("manage.folder_list", ok({ list: [] }), { folder_id: "folderHelp1" }), folderList({ list: [{ id: "folderHelp1", is_folder: true, title: "help", url: "u" }] })]),
+  });
+  back("help: list help -n 5", ["list", "help", "-n", "5"], HELP, {
+    mock: mock([rule("manage.folder_list", ok({ list: [] }), { folder_id: "folderHelp1" }), folderList({ list: [{ id: "folderHelp1", is_folder: true, title: "help", url: "u" }] })]),
+  });
+  back("help: read help", ["read", "help"], HELP, { mock: mock([searchHits([{ file_id: "h000000001", file_name: "help" }]), infoOf("h000000001", docInfo), content("h000000001", "the help document")], [1, 2]) });
+  back("help: info help", ["info", "help"], HELP, { mock: mock([searchHits([{ file_id: "h000000001", file_name: "help" }]), infoOf("h000000001", docInfo)]) });
+  back("help: perm get help", ["perm", "get", "help"], HELP, { mock: mock([searchHits([{ file_id: "h000000001", file_name: "help" }]), rule("manage.get_privilege", ok({ policy: 2 }))]) });
+  back("help: space ls help", ["space", "ls", "help"], HELP, { mock: mock(rule("query_space_node", ok({ children: [] }))) });
+  back("help: canvas read help --all", ["canvas", "read", "help", "--all"], HELP, { mock: mock([searchHits([{ file_id: "h000000001", file_name: "help" }]), rule("smartcanvas.read", ok({ content: "x" }))]) });
+  back("help: canvas find dFzLAbBjFuBr help", ["canvas", "find", "dFzLAbBjFuBr", "help"], HELP, { mock: mock(rule("smartcanvas.find", ok({ blocks: [] }))) });
+  // Not the last word: an ordinary argument to yargs. The binary leaves the
+  // word to yargs wherever it stands.
+  back("help: canvas find help q", ["canvas", "find", "help", "q"], HELP, { mock: mock([searchHits([{ file_id: "h000000001", file_name: "help" }]), rule("smartcanvas.find", ok({ blocks: [] }))]) });
+  add("help: the word Help in capitals is an ordinary query", ["search", "Help"], { mock: mock(searchHits([])) });
+  back("help: space ls S --parent help", ["space", "ls", "S", "--parent", "help"], HELP, { mock: mock(rule("query_space_node", ok({ children: [] }))) });
+
+  // A number whose shortest spelling is a tie between two digits: JavaScript takes the even one.
+  add("number: raw sends 1459077941253781.25 as JavaScript writes it", ["raw", "get_content", "--json", '{"n":1459077941253781.25,"m":172237639781087.625,"k":-951257392298430.25}'], { mock: mock(rule("get_content", ok({ content: "c" }))) });
+  add("number: info --json prints 1459077941253781.25 as JavaScript writes it", ["info", "dFzLAbBjFuBr", "--json"], { mock: mock(rule("manage.query_file_info", rawStructured('{"size":1459077941253781.25,"ratio":247750044800341.125}'))) });
+  add("number: info prints 1262661521323025.25 as JavaScript writes it", ["info", "dFzLAbBjFuBr"], { mock: mock(rule("manage.query_file_info", rawStructured('{"size":1262661521323025.25}'))) });
+  add("number: usage with a count of 1037828712724149.25", ["usage"], { home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":1037828712724149.25},"monthly":{"@MONTH@":1}}' } });
+  add("number: read remembers information that holds 1459077941253781.25", ["read", "dFzLAbBjFuBr"], {
+    mock: mock([rule("manage.query_file_info", rawStructured('{"title":"T","url":"https://docs.qq.com/doc/x","size":1459077941253781.25}'), { file_id: "dFzLAbBjFuBr" }), content("dFzLAbBjFuBr", "x")], [2]),
+  });
+  add("number: a call counted on top of 1132576346863060.25", ["search", "x"], { mock: mock(searchHits([])), home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":1132576346863060.25},"monthly":{"@MONTH@":1132576346863060.25},"inferredTier":"plus"}' } });
+
+  // bun reads package.json, tsconfig.json and jsconfig.json of the current directory and of
+  // every directory above it, and reports one it cannot parse on standard error.
+  back("project: a package.json that does not parse, in the current directory", ["usage"], PROJECT, { files: { "package.json": "{ this is not json" } });
+  back("project: a package.json of no bytes in the current directory is passed over", ["ls"], PROJECT, { mock: mock(recent([planA])), files: { "package.json": "" } });
+  back("project: a package.json that is one line end, in the current directory", ["ls"], PROJECT, { mock: mock(recent([planA])), files: { "package.json": "\n" } });
+  back("project: a tsconfig.json that does not parse, in the current directory", ["usage"], PROJECT, { files: { "tsconfig.json": "{ nor this" } });
+  back("project: a jsconfig.json that does not parse, in the current directory", ["usage"], PROJECT, { files: { "jsconfig.json": "nope" } });
+  back("project: a package.json that does not parse, in the directory above", ["usage"], PROJECT, { setup: ["printf '{ bad' > ../package.json"] });
+  back("project: a package.json and a tsconfig.json that parse, with comments, paths and a trailing comma", ["ls"], PROJECT, {
+    mock: mock(recent([planA])),
+    files: { "package.json": '{"name":"elsewhere","version":"9.9.9","type":"commonjs","imports":{"#x":"./x.js"},}', "tsconfig.json": '{\n // c\n "compilerOptions": {"baseUrl": ".", "paths": {"yargs": ["./nope.ts"], "yaml": ["./nope.ts"]}, "jsx": "react"},\n}\n' },
+  });
+
+  // more of the same kind as above, which the binary got right
+  add("ls: --dates on thirty documents, thirty-one calls counted", ["ls", "-n", "30", "--dates"], {
+    mock: mock([recent(Array.from({ length: 30 }, (_, i) => ({ file_id: `doc${String(i).padStart(7, "0")}`, file_name: `Doc ${i}`, file_url: `https://docs.qq.com/doc/D${i}` }))), rule("manage.query_file_info", ok({ last_modify_time: 1700000000000 }))], [1, 30]),
+    home: { ".qqdocs/usage.json": usageAt(40) },
+    timeout: 300,
+  });
+  add("search: a query of 20 000 characters", ["search", "长 query ".repeat(2500)], { mock: mock(searchHits([])) });
+  add("usage: a count too large for a number", ["usage"], { home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":1e999},"monthly":{"@MONTH@":-1e-999}}' } });
+  add("search: a call counted on top of a count too large for a number", ["search", "x"], { mock: mock(searchHits([])), home: { ".qqdocs/usage.json": '{"daily":{"@TODAY@":1e999},"monthly":{"@MONTH@":9007199254740992}}' } });
+
+
+  // the first run on a machine, for commands that make several calls
+  add("first run: read by title, three calls", ["read", "Plan"], { firstRun: true, mock: mock([searchHits([planA]), infoOf("dFzLAbBjFuBr", docInfo), content("dFzLAbBjFuBr", "x")], [1, 2]) });
+  add("first run: info by title, two calls", ["info", "Plan"], { firstRun: true, mock: mock([searchHits([planA]), infoOf("dFzLAbBjFuBr", docInfo)]) });
+  add("first run: ls --dates, one call then two at once", ["ls", "--dates"], { firstRun: true, mock: mock([recent([planA, budget]), rule("manage.query_file_info", ok({ last_modify_time: 1700000000000 }))], [1, 2]) });
+  add("first run: a folder by path with --dates", ["ls", "Projects", "--dates"], { firstRun: true, mock: mock([rule("manage.folder_list", ok({ list: [{ id: "d1", title: "D1", url: "//docs.qq.com/doc/d1" }, { id: "d2", title: "D2", url: "//docs.qq.com/doc/d2" }] }), { folder_id: "folderAAAA01" }), folderList({ list: [{ id: "folderAAAA01", is_folder: true, title: "Projects", url: "u" }] }), rule("manage.query_file_info", ok({ last_modify_time: 1700000000000 }))], [1, 1, 2]) });
+  add("first run: canvas read --all, two pages", ["canvas", "read", "dFzLAbBjFuBr", "--all"], { firstRun: true, mock: mock(rule("smartcanvas.read", [ok({ content: "a", next_token: "t" }), ok({ content: "b" })])) });
+  add("first run: usage calibrate with a tier", ["usage", "calibrate", "--tier", "member"], { firstRun: true });
+  add("first run: ~/.qqdocs is a dangling link", ["search", "x"], { firstRun: true, setup: ["ln -s /nonexistent/dir <HOME>/.qqdocs"], mock: mock(searchHits([])) });
+
+}
+
 // ── output ───────────────────────────────────────────────────────────────────
 
 const spec = {
   // What differs between two runs of the same case: the time a document was
   // put into the cache, and the time of a sync, in milliseconds.
   normalize: [
-    ['"cachedAt": ?\\d{13}\\b', '"cachedAt": <MS>'],
+    ['"cachedAt": ?\\d{13}(\\.5)?\\b', '"cachedAt": <MS>'],
     ['"syncedAt": \\d{13}\\b', '"syncedAt": <MS>'],
   ],
   cases,
