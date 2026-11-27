@@ -18,6 +18,9 @@
 // that every bun the cases start loads the stand-in's seam; the first run
 // compares the two; the second shows which cases the binary answered itself
 // (it has to be exactly those marked "handback" for the system it runs on).
+// The parity job of CI runs all of it, and cargo test, in parts at once:
+//
+//   node rs/parity/proof.mjs rs/target/release/qqdocs $P
 //
 // The same cases run on Linux, macOS and Windows. On Windows the binary hands
 // every command back (see WINDOWS below), so there every case is marked
